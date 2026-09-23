@@ -1,6 +1,7 @@
 package no.nav.tsm.sykmelding.ocr
 
 import net.sourceforge.tess4j.ITessAPI
+import net.sourceforge.tess4j.ITessAPI.TessPageSegMode.PSM_SINGLE_LINE
 import net.sourceforge.tess4j.Tesseract
 import java.awt.Rectangle
 import java.awt.image.BufferedImage
@@ -8,35 +9,35 @@ import java.io.File
 
 class Ocr {
 
-    public fun parse(img: BufferedImage, field: Field): String? {
-        val subImage = img.getSubimage(field.x, field.y, field.width, field.height)
+    companion object {
         val tesseract = Tesseract().apply {
             setDatapath("")
             setLanguage("nor")
             setOcrEngineMode(1) // LSTM only (required for "best" tessdata)
+            setVariable("debug_file", "NUL")
         }
+    }
+    public fun parse(img: BufferedImage, field: Field): String? {
+        val subImage = img.getSubimage(field.x, field.y, field.width, field.height)
         return tesseract.doOCR(subImage)
     }
 
     public fun getTextsRegions(img: BufferedImage): List<Rectangle?>? {
-        val tesseract = Tesseract().apply {
-            setDatapath("")
-            setLanguage("nor")
-            setOcrEngineMode(1) // LSTM only (required for "best" tessdata)
-            setVariable("debug_file", "NUL")
-        }
         return tesseract.getSegmentedRegions(img, ITessAPI.TessPageIteratorLevel.RIL_WORD)
     }
 
     public fun parse(img: BufferedImage): String? {
-        val tesseract = Tesseract().apply {
-            setDatapath("")
-            setLanguage("nor")
-            setOcrEngineMode(1) // LSTM only (required for "best" tessdata)
-            setVariable("debug_file", "NUL")
-        }
+
         tesseract.setPageSegMode(11)
         return tesseract.doOCR(img)
+    }
+
+    fun parseFnr(img: BufferedImage, field: Field): String? {
+        val subImage = img.getSubimage(field.x, field.y, field.width, field.height)
+        tesseract.setVariable("tessedit_char_whitelist", "0123456789-")
+        tesseract.setVariable("", "true")
+        tesseract.setPageSegMode(PSM_SINGLE_LINE)
+        return tesseract.doOCR(subImage)
     }
 }
 

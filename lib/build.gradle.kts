@@ -19,27 +19,6 @@ repositories {
     mavenCentral()
 }
 
-publishing {
-    publications {
-        create<MavenPublication>("gpr") {
-            from(components["java"])
-            groupId = "no.nav.sykmelding"
-            artifactId = "core"
-            version = project.version.toString()
-        }
-    }
-    repositories {
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/navikt/sykmelding-ocr")
-            credentials {
-                username = "x-access-token"
-                password = System.getenv("GITHUB_TOKEN")
-            }
-        }
-    }
-}
-
 dependencies {
     // Use the Kotlin Test integration.
     testImplementation("org.jetbrains.kotlin:kotlin-test")
@@ -74,9 +53,9 @@ publishing {
     publications {
         create<MavenPublication>("gpr") {
             from(components["java"])
-            groupId = "no.nav.tsm.sykmelding"
-            artifactId = "ocr"
-            version = project.version.toString()
+            groupId = "no.nav.tsm"
+            artifactId = "sykmelding-ocr"
+            version = version
         }
     }
      repositories {
