@@ -8,6 +8,7 @@
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
     alias(libs.plugins.kotlin.jvm)
+    id("maven-publish")
 
     // Apply the java-library plugin for API and implementation separation.
     `java-library`
@@ -16,6 +17,27 @@ plugins {
 repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("gpr") {
+            from(components["java"])
+            groupId = "no.nav.sykmelding"
+            artifactId = "core"
+            version = project.version.toString()
+        }
+    }
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/navikt/sykmelding-ocr")
+            credentials {
+                username = "x-access-token"
+                password = System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
 }
 
 dependencies {
@@ -46,4 +68,25 @@ java {
 tasks.named<Test>("test") {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("gpr") {
+            from(components["java"])
+            groupId = "no.nav.tsm.sykmelding"
+            artifactId = "ocr"
+            version = project.version.toString()
+        }
+    }
+     repositories {
+         maven {
+             name = "GitHubPackages"
+             url = uri("https://maven.pkg.github.com/navikt/sykmelding-ocr")
+             credentials {
+                 username = "x-access-token"
+                 password = System.getenv("GITHUB_TOKEN")
+             }
+         }
+     }
 }
