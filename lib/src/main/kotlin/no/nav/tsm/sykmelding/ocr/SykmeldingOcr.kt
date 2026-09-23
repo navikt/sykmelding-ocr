@@ -1,28 +1,83 @@
 package no.nav.tsm.sykmelding.ocr
 
-import net.sourceforge.tess4j.ITessAPI
-import net.sourceforge.tess4j.ITessAPI.TessPageSegMode.PSM_SINGLE_LINE
-import net.sourceforge.tess4j.Tesseract
-import java.awt.Rectangle
+import org.bytedeco.tesseract.TessBaseAPI
+import org.bytedeco.tesseract.global.tesseract.OEM_LSTM_ONLY
+import org.bytedeco.tesseract.global.tesseract.PSM_SPARSE_TEXT
+import org.bytedeco.tesseract.global.tesseract.TessDeleteText
+import java.awt.Color
 import java.awt.image.BufferedImage
-import java.io.File
+import java.awt.image.DataBufferByte
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 
 class Ocr {
 
+    internal object TessData {
+        private val languages = listOf("nor")
+
+        val dir: Path by lazy {
+            val d = Files.createTempDirectory("tessdata")
+            languages.forEach { lang ->
+                val name = "$lang.traineddata"
+                val stream = TessData::class.java.getResourceAsStream("/tessdata/$name")
+                    ?: error("Missing /tessdata/$name on classpath")
+                stream.use { Files.copy(it, d.resolve(name), StandardCopyOption.REPLACE_EXISTING) }
+            }
+            d
+        }
+    }
+
     companion object {
-        val tesseract = Tesseract().apply {
+        val tesseract = TessBaseAPI()
+
+        init {
+            val path = TessData.dir.toString()
+            check(tesseract.Init(path, "nor", OEM_LSTM_ONLY) == 0) {
+                "Could not initialize Norwegian OCR"
+            }
+            tesseract.SetPageSegMode(6)
+
+        }
+
+       /* val tesseract = Tesseract().apply {
             setDatapath("")
             setLanguage("nor")
             setOcrEngineMode(1) // LSTM only (required for "best" tessdata)
             setVariable("debug_file", "NUL")
+        }*/
+    }
+    public fun parse(img: BufferedImage, field: Field? = null): String? {
+
+        val subImage = field?.let {
+            img.getSubimage(it.x, it.y, it.width, it.height)
+        } ?: img
+        // Normalize channel order and composite transparency onto white before OCR.
+        val grayscale = BufferedImage(subImage.width, subImage.height, BufferedImage.TYPE_BYTE_GRAY)
+        val graphics = grayscale.createGraphics()
+        try {
+            graphics.color = Color.WHITE
+            graphics.fillRect(0, 0, grayscale.width, grayscale.height)
+            graphics.drawImage(subImage, 0, 0, null)
+        } finally {
+            graphics.dispose()
+        }
+        val pixels = (grayscale.raster.dataBuffer as DataBufferByte).data
+
+        return synchronized(tesseract) {
+            tesseract.SetImage(pixels, grayscale.width, grayscale.height, 1, grayscale.width)
+            val textPointer = tesseract.GetUTF8Text()
+            check(textPointer != null && !textPointer.isNull) { "OCR recognition failed" }
+            try {
+                textPointer.getString(Charsets.UTF_8)
+            } finally {
+                TessDeleteText(textPointer)
+                tesseract.Clear()
+            }
         }
     }
-    public fun parse(img: BufferedImage, field: Field): String? {
-        val subImage = img.getSubimage(field.x, field.y, field.width, field.height)
-        return tesseract.doOCR(subImage)
-    }
 
-    public fun getTextsRegions(img: BufferedImage): List<Rectangle?>? {
+   /* public fun getTextsRegions(img: BufferedImage): List<Rectangle?>? {
         return tesseract.getSegmentedRegions(img, ITessAPI.TessPageIteratorLevel.RIL_WORD)
     }
 
@@ -38,7 +93,7 @@ class Ocr {
         tesseract.setVariable("", "true")
         tesseract.setPageSegMode(PSM_SINGLE_LINE)
         return tesseract.doOCR(subImage)
-    }
+    }*/
 }
 
 
