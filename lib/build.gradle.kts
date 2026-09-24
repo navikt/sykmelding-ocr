@@ -29,10 +29,9 @@ dependencies {
     testImplementation(libs.junit.jupiter.engine)
 
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-
+    testImplementation("org.apache.pdfbox:pdfbox:3.0.8")
     // This dependency is exported to consumers, that is to say found on their compile classpath.
     api(libs.commons.math3)
-    //implementation("org.bytedeco:tesseract-platform:5.5.3-1.5.14")
     implementation(libs.bytedeco.tesseract)
     implementation(libs.bytedeco.tesseract.platform)
     implementation(libs.bytedeco.javacv)

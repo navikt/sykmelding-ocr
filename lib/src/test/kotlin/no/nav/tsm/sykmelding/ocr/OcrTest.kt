@@ -1,6 +1,10 @@
 package no.nav.tsm.sykmelding.ocr
 
+import org.apache.pdfbox.Loader
+import org.apache.pdfbox.rendering.PDFRenderer
 import org.junit.jupiter.api.Assertions.assertEquals
+import tools.jackson.module.kotlin.jacksonObjectMapper
+import tools.jackson.module.kotlin.readValue
 import java.awt.Color
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
@@ -8,7 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertNotNull
 
 class OcrTest {
-
+    val objectMapper = jacksonObjectMapper()
     @Test
     fun `OCR returns "test" text`() {
         val ocr = Ocr()
@@ -23,6 +27,7 @@ class OcrTest {
         val img = ImageIO.read(javaClass.getResourceAsStream("/img_1.png"))
         val result = ocr.parse(img, Field(0, 0, img.width, img.height, "test"))
         assertNotNull(result)
+        println(result)
     }
 
     @Test
@@ -91,23 +96,22 @@ class OcrTest {
         assertEquals("Test\n", Ocr().parse(img, field))
     }
 
-    /*@Test
+    @Test
     fun `OCR read field`() {
         val ocr = Ocr()
         val pdf = javaClass.getResourceAsStream("/test.pdf").readBytes()
         val fields: List<Field> =  objectMapper.readValue(javaClass.getResourceAsStream("/fields.json").readBytes())
-        //val pages = renderPages(pdf)
+        val pages = renderPages(pdf)
         fields.forEach {
-            val result = ocr.parse(pages.first(), Field(it.x, it.y, it.width, it.height, it.name))
+            val result = ocr.parse(pages.first(), Field(it.x, it.y, it.width, it.height, it.name), PSM_MODE.PSM_SINGLE_LINE)
             assertEquals("R74", result?.trim())
         }
     }
-    */
 }
-/*
+
 private fun renderPages(pdf: ByteArray): List<BufferedImage> =
     Loader.loadPDF(pdf).use { document ->
         val renderer = PDFRenderer(document)
         (0 until 1).map { renderer.renderImageWithDPI(it, 400.0f) }
     }
-*/
+

@@ -1,14 +1,35 @@
 package no.nav.tsm.sykmelding.ocr
 
 import org.bytedeco.tesseract.TessBaseAPI
+import org.bytedeco.tesseract.global.tesseract
 import org.bytedeco.tesseract.global.tesseract.OEM_LSTM_ONLY
+import org.bytedeco.tesseract.global.tesseract.PSM_AUTO
+import org.bytedeco.tesseract.global.tesseract.PSM_SINGLE_BLOCK
+import org.bytedeco.tesseract.global.tesseract.PSM_SPARSE_TEXT
 import org.bytedeco.tesseract.global.tesseract.TessDeleteText
+import org.opencv.text.Text
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+
+enum class PSM_MODE(val value: Int) {
+    PSM_OSD_ONLY(0),
+    PSM_AUTO_OSD(1),
+    PSM_AUTO_ONLY(2),
+    PSM_AUTO(3),
+    PSM_SINGLE_COLUMN(4),
+    PSM_SINGLE_BLOCK_VERT_TEXT(5),
+    PSM_SINGLE_BLOCK(6),
+    PSM_SINGLE_LINE(7),
+    PSM_SINGLE_WORD(8),
+    PSM_CIRCLE_WORD(9),
+    PSM_SINGLE_CHAR(10),
+    PSM_SPARSE_TEXT(11),
+    PSM_SPARSE_TEXT_OSD(12)
+}
 
 class Ocr {
 
@@ -36,7 +57,7 @@ class Ocr {
             check(tesseract.Init(path, "nor", OEM_LSTM_ONLY) == 0) {
                 "Could not initialize Norwegian OCR"
             }
-            tesseract.SetPageSegMode(1)
+            tesseract.SetPageSegMode(PSM_AUTO)
 
             Runtime.getRuntime().addShutdownHook(Thread {
                 tesseract.End()
@@ -49,8 +70,8 @@ class Ocr {
             setVariable("debug_file", "NUL")
         }*/
     }
-    public fun parse(img: BufferedImage, field: Field? = null): String? {
-
+    public fun parse(img: BufferedImage, field: Field? = null, psmMode: PSM_MODE = PSM_MODE.PSM_AUTO): String? {
+        tesseract.SetPageSegMode(psmMode.value)
         val subImage = field?.let {
             img.getSubimage(it.x, it.y, it.width, it.height)
         } ?: img
