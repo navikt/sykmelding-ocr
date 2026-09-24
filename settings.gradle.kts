@@ -11,3 +11,4 @@ plugins {
 
 rootProject.name = "sykmelding-ocr"
 include("lib")
+include("template")
