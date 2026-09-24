@@ -1,8 +1,5 @@
 package no.nav.tsm.sykmelding.ocr
 
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.SerializationFeature
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.junit.jupiter.api.Assertions.assertEquals
 import java.awt.Color
 import java.awt.image.BufferedImage
@@ -11,10 +8,6 @@ import kotlin.test.Test
 import kotlin.test.assertNotNull
 
 class OcrTest {
-    val objectMapper = jacksonObjectMapper().apply {
-        configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-        configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
-    }
 
     @Test
     fun `OCR returns "test" text`() {

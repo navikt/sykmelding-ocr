@@ -6,6 +6,7 @@
  */
 val javacppVersion = "1.5.14"
 val opencv = "4.14.0-1.5.14$javacppVersion"
+version = file("./version").readText().trim()
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
     alias(libs.plugins.kotlin.jvm)
@@ -32,13 +33,12 @@ dependencies {
     // This dependency is exported to consumers, that is to say found on their compile classpath.
     api(libs.commons.math3)
     //implementation("org.bytedeco:tesseract-platform:5.5.3-1.5.14")
-    implementation("net.sourceforge.tess4j:tess4j:5.20.0")
-    implementation("org.bytedeco:tesseract:5.5.3-1.5.14")
-    implementation("org.bytedeco:tesseract-platform:5.5.3-1.5.14")
-    implementation("org.bytedeco:javacv-platform:1.5.14")
+    implementation(libs.bytedeco.tesseract)
+    implementation(libs.bytedeco.tesseract.platform)
+    implementation(libs.bytedeco.javacv)
     // This dependency is used internally, and not exposed to consumers on their own compile classpath.
     implementation(libs.guava)
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
+    implementation(libs.jackson.module.kotlin)
 }
 
 // Apply a specific Java toolchain to ease working on different environments.

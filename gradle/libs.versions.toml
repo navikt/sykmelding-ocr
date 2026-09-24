@@ -5,11 +5,19 @@
 commons-math3 = "3.6.1"
 guava = "33.5.0-jre"
 junit-jupiter-engine = "6.0.1"
+tesseract-version = "5.5.3-1.5.14"
+opencv-version = "1.5.14"
+jackson = "3.2.2"
+
 
 [libraries]
 commons-math3 = { module = "org.apache.commons:commons-math3", version.ref = "commons-math3" }
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
+jackson-module-kotlin = { module = "tools.jackson.module:jackson-module-kotlin", version.ref = "jackson"}
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit-jupiter-engine" }
+bytedeco-tesseract = { module = "org.bytedeco:tesseract", version.ref = "tesseract-version" }
+bytedeco-tesseract-platform = { module = "org.bytedeco:tesseract-platform", version.ref = "tesseract-version" }
+bytedeco-javacv = { module = "org.bytedeco:javacv-platform", version.ref = "opencv-version" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version = "2.4.0" }
