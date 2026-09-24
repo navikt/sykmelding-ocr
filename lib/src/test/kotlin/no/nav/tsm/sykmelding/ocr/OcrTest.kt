@@ -3,11 +3,6 @@ package no.nav.tsm.sykmelding.ocr
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import org.bytedeco.javacv.Java2DFrameUtils
-import org.bytedeco.javacv.Java2DFrameUtils.toBufferedImage
-import org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGR2GRAY
-import org.bytedeco.opencv.global.opencv_imgproc.cvtColor
-import org.bytedeco.opencv.opencv_core.Mat
 import org.junit.jupiter.api.Assertions.assertEquals
 import java.awt.Color
 import java.awt.image.BufferedImage
@@ -35,6 +30,29 @@ class OcrTest {
         val img = ImageIO.read(javaClass.getResourceAsStream("/img_1.png"))
         val result = ocr.parse(img, Field(0, 0, img.width, img.height, "test"))
         assertNotNull(result)
+    }
+
+    @Test
+    fun `OCR returns "test-svensk" with field text`() {
+        val ocr = Ocr()
+        val img = ImageIO.read(javaClass.getResourceAsStream("/svenskmann2.png"))
+        val result = ocr.parse(img, Field(0, 0, img.width, img.height, "test"))
+        assertNotNull(result)
+    }
+
+    @Test
+    fun `OCR returns "test-svensk" with field text 2`() {
+        val ocr = Ocr()
+        val img1 = ImageIO.read(javaClass.getResourceAsStream("/svenskmann1.png"))
+        val result = ocr.parse(img1, Field(0, 0, img1.width, img1.height, "test"))
+        val img2 = ImageIO.read(javaClass.getResourceAsStream("/svenskmann2.png"))
+        val result2 = ocr.parse(img2, Field(0, 0, img2.width, img2.height, "test"))
+        val img3 = ImageIO.read(javaClass.getResourceAsStream("/svenskmann3.png"))
+        val result3 = ocr.parse(img3, Field(0, 0, img3.width, img3.height, "test"))
+        println(result + "\n\n\n Side 2 \n" + result2 + "\n\n\n Side 3 \n" + result3)
+        assertNotNull(result)
+        assertNotNull(result2)
+        assertNotNull(result3)
     }
 
     @Test

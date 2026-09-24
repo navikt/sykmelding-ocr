@@ -2,7 +2,6 @@ package no.nav.tsm.sykmelding.ocr
 
 import org.bytedeco.tesseract.TessBaseAPI
 import org.bytedeco.tesseract.global.tesseract.OEM_LSTM_ONLY
-import org.bytedeco.tesseract.global.tesseract.PSM_SPARSE_TEXT
 import org.bytedeco.tesseract.global.tesseract.TessDeleteText
 import java.awt.Color
 import java.awt.image.BufferedImage
@@ -15,11 +14,12 @@ class Ocr {
 
     internal object TessData {
         private val languages = listOf("nor")
+        private val auxFiles = listOf("osd")
 
         val dir: Path by lazy {
             val d = Files.createTempDirectory("tessdata")
-            languages.forEach { lang ->
-                val name = "$lang.traineddata"
+            (languages + auxFiles).forEach { it ->
+                val name = "$it.traineddata"
                 val stream = TessData::class.java.getResourceAsStream("/tessdata/$name")
                     ?: error("Missing /tessdata/$name on classpath")
                 stream.use { Files.copy(it, d.resolve(name), StandardCopyOption.REPLACE_EXISTING) }
@@ -36,10 +36,12 @@ class Ocr {
             check(tesseract.Init(path, "nor", OEM_LSTM_ONLY) == 0) {
                 "Could not initialize Norwegian OCR"
             }
-            tesseract.SetPageSegMode(6)
+            tesseract.SetPageSegMode(1)
 
+            Runtime.getRuntime().addShutdownHook(Thread {
+                tesseract.End()
+            })
         }
-
        /* val tesseract = Tesseract().apply {
             setDatapath("")
             setLanguage("nor")
@@ -66,6 +68,8 @@ class Ocr {
 
         return synchronized(tesseract) {
             tesseract.SetImage(pixels, grayscale.width, grayscale.height, 1, grayscale.width)
+//            tesseract.SetVariable("tessedit_char_whitelist", "0123456789-")
+//            tesseract.SetVariable("tessedit_char_blacklist", "|»")
             val textPointer = tesseract.GetUTF8Text()
             check(textPointer != null && !textPointer.isNull) { "OCR recognition failed" }
             try {
