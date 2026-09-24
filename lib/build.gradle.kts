@@ -4,7 +4,8 @@
  * This generated file contains a sample Kotlin library project to get you started.
  * For more details on building Java & JVM projects, please refer to https://docs.gradle.org/9.7.1/userguide/building_java_projects.html in the Gradle documentation.
  */
-
+val javacppVersion = "1.5.14"
+val opencv = "4.14.0-1.5.14$javacppVersion"
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
     alias(libs.plugins.kotlin.jvm)
@@ -17,27 +18,6 @@ plugins {
 repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
-}
-
-publishing {
-    publications {
-        create<MavenPublication>("gpr") {
-            from(components["java"])
-            groupId = "no.nav.sykmelding"
-            artifactId = "core"
-            version = project.version.toString()
-        }
-    }
-    repositories {
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/navikt/sykmelding-ocr")
-            credentials {
-                username = "x-access-token"
-                password = System.getenv("GITHUB_TOKEN")
-            }
-        }
-    }
 }
 
 dependencies {
@@ -53,6 +33,9 @@ dependencies {
     api(libs.commons.math3)
     //implementation("org.bytedeco:tesseract-platform:5.5.3-1.5.14")
     implementation("net.sourceforge.tess4j:tess4j:5.20.0")
+    implementation("org.bytedeco:tesseract:5.5.3-1.5.14")
+    implementation("org.bytedeco:tesseract-platform:5.5.3-1.5.14")
+    implementation("org.bytedeco:javacv-platform:1.5.14")
     // This dependency is used internally, and not exposed to consumers on their own compile classpath.
     implementation(libs.guava)
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
@@ -74,9 +57,9 @@ publishing {
     publications {
         create<MavenPublication>("gpr") {
             from(components["java"])
-            groupId = "no.nav.tsm.sykmelding"
-            artifactId = "ocr"
-            version = project.version.toString()
+            groupId = "no.nav.tsm"
+            artifactId = "sykmelding-ocr"
+            version = version
         }
     }
      repositories {
