@@ -8,7 +8,7 @@ import kotlin.test.Test
 class OcrTest {
 
     @Test
-    fun `OCR returns "test" text`() {
+    fun `OCR returns test text`() {
         val ocr = Ocr()
         val img = ImageIO.read(javaClass.getResourceAsStream("/test.png"))
         val result = ocr.parse(img)

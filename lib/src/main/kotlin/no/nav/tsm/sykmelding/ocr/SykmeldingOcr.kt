@@ -144,9 +144,7 @@ class SykmeldingOcr(val ocr: Ocr) {
             } else {
                 // try to parse pages for given sykmeldingTemplate
                 val result = parseTemplate(pages, it)
-                if (result != null) {
-                    return result
-                }
+                return result
             }
         }
         return null

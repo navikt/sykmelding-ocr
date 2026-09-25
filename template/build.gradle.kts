@@ -12,8 +12,11 @@ repositories {
 }
 
 dependencies {
-    implementation("no.nav.tsm:sykmelding-ocr:0.0.2")
+    implementation(libs.bytedeco.javacv)
+    implementation(project(":lib"))
     testImplementation("org.jetbrains.kotlin:kotlin-test")
+    testImplementation(libs.junit.jupiter.engine)
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 

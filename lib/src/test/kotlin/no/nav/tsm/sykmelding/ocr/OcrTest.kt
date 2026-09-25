@@ -14,7 +14,7 @@ import kotlin.test.assertNotNull
 class OcrTest {
     val objectMapper = jacksonObjectMapper()
     @Test
-    fun `OCR returns "test" text`() {
+    fun `OCR returns test text`() {
         val ocr = Ocr()
         val img = ImageIO.read(javaClass.getResourceAsStream("/img.png"))
         val result = ocr.parse(img)
@@ -22,7 +22,7 @@ class OcrTest {
     }
 
     @Test
-    fun `OCR returns "test" with field text`() {
+    fun `OCR returns test with field text`() {
         val ocr = Ocr()
         val img = ImageIO.read(javaClass.getResourceAsStream("/img_1.png"))
         val result = ocr.parse(img, Field(0, 0, img.width, img.height, "test"))
@@ -31,7 +31,7 @@ class OcrTest {
     }
 
     @Test
-    fun `OCR returns "test-svensk" with field text`() {
+    fun `OCR returns test-svensk with field text`() {
         val ocr = Ocr()
         val img = ImageIO.read(javaClass.getResourceAsStream("/svenskmann2.png"))
         val result = ocr.parse(img, Field(0, 0, img.width, img.height, "test"))
@@ -39,7 +39,7 @@ class OcrTest {
     }
 
     @Test
-    fun `OCR returns "test-svensk" with field text 2`() {
+    fun `OCR returns test-svensk with field text 2`() {
         val ocr = Ocr()
         val img1 = ImageIO.read(javaClass.getResourceAsStream("/svenskmann1.png"))
         val result = ocr.parse(img1, Field(0, 0, img1.width, img1.height, "test"))
