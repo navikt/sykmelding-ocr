@@ -43,6 +43,7 @@ class TemplateView(
         template?.referansepunkter?.forEach { addElement(it) }
     }
     private val fieldList = JList(fields)
+    private val editFieldButton = button("Rediger") { editSelectedField() }.apply { isEnabled = false }
     private val referenceList = JList(references)
     private val status = JLabel("Importer et malbilde for å komme i gang.")
     private val imageTitle = JLabel("Malbilde")
@@ -82,6 +83,7 @@ class TemplateView(
         fieldList.addListSelectionListener {
             if (!it.valueIsAdjusting) {
                 cancelSelection()
+                editFieldButton.isEnabled = fieldList.selectedIndex >= 0
                 canvas.selectedField = fieldList.selectedIndex
                 fieldList.selectedValue?.let { field ->
                     status.text = "${field.navn}: x=${field.x}, y=${field.y}, ${field.bredde} × ${field.hoyde} px. Dra for å endre området."
@@ -151,7 +153,7 @@ class TemplateView(
             newFieldName = name
             canvas.creatingRegion = true
             status.text = "Dra en ramme rundt $name i bildet. Esc avbryter."
-        }, button("Fjern") {
+        }, editFieldButton, button("Fjern") {
             val index = fieldList.selectedIndex
             if (index >= 0) {
                 fields.remove(index)
@@ -191,6 +193,27 @@ class TemplateView(
         if (canvas.image != null) return true
         status.text = "Importer et malbilde først."
         return false
+    }
+
+    internal fun editSelectedField(
+        requestName: (String) -> String? = { currentName ->
+            JOptionPane.showInputDialog(
+                this, "Feltnavn:", "Rediger felt", JOptionPane.PLAIN_MESSAGE, null, null, currentName,
+            )?.toString()
+        },
+    ) {
+        val index = fieldList.selectedIndex
+        if (index < 0) return
+        val field = fields[index]
+        val name = requestName(field.navn)?.trim() ?: return
+        if (name.isEmpty()) {
+            status.text = "Feltnavnet kan ikke være tomt."
+            return
+        }
+        cancelSelection()
+        fields.set(index, field.copy(navn = name))
+        refreshRegions()
+        status.text = "Feltnavn endret til $name."
     }
 
     private fun importImage() {

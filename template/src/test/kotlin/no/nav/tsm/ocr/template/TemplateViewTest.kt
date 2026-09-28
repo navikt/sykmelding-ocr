@@ -14,12 +14,15 @@ import java.awt.image.BufferedImage
 import java.nio.file.Files
 import javax.imageio.ImageIO
 import javax.swing.JButton
+import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class TemplateViewTest {
     @Test
@@ -105,6 +108,78 @@ class TemplateViewTest {
             }
         } finally {
             file.delete()
+        }
+    }
+
+    @Test
+    fun `renaming updates list and canvas and persists only the selected field name`() {
+        val directory = Files.createTempDirectory("template-rename-test").toFile()
+        try {
+            val image = directory.resolve("image.png")
+            ImageIO.write(BufferedImage(400, 200, BufferedImage.TYPE_INT_RGB), "png", image)
+            val file = directory.resolve("template.json")
+            val original = Template(
+                "Mal", listOf(directory.resolve("navlogo.png").absolutePath), "Beskrivelse",
+                listOf(Felter(50, 20, 100, 60, "Fornavn", "name"), Felter(200, 20, 100, 60, "Etternavn", "surname")),
+                image.absolutePath,
+            )
+            TemplateFiles.write(file, original)
+            SwingUtilities.invokeAndWait {
+                val view = TemplateView(TemplateFiles.read(file), templateFile = file)
+                val components = descendants(view).toList()
+                val canvas = components.filterIsInstance<TemplateImageCanvas>().single().apply { setSize(232, 232) }
+                val list = components.filterIsInstance<JList<*>>().single { it.model.getElementAt(0) is Felter }
+                val edit = components.filterIsInstance<JButton>().single { it.text == "Rediger" }
+                assertFalse(edit.isEnabled)
+
+                drag(canvas, Point(60, 90), Point(60, 90))
+                assertTrue(edit.isEnabled)
+                view.editSelectedField { currentName ->
+                    assertEquals("Fornavn", currentName)
+                    "  Fullt navn  "
+                }
+
+                val expected = original.felter[0].copy(navn = "Fullt navn")
+                assertEquals(expected, list.selectedValue)
+                assertEquals(listOf(expected, original.felter[1]), canvas.fields)
+                assertEquals(0, canvas.selectedField)
+                components.filterIsInstance<JButton>().single { it.text == "Lagre mal" }.doClick()
+                assertEquals(original.copy(felter = canvas.fields), TemplateFiles.read(file))
+
+                list.clearSelection()
+                assertFalse(edit.isEnabled)
+                list.selectedIndex = 1
+                assertTrue(edit.isEnabled)
+                view.editSelectedField { "Familienavn" }
+                assertEquals(expected, canvas.fields[0])
+                assertEquals(original.felter[1].copy(navn = "Familienavn"), list.selectedValue)
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `rename ignores missing selection and cancellation and reports blank names`() {
+        SwingUtilities.invokeAndWait {
+            val field = Felter(50, 20, 100, 60, "Fornavn", "name")
+            val view = TemplateView(Template("Mal", emptyList(), "", listOf(field), ""))
+            val components = descendants(view).toList()
+            val list = components.filterIsInstance<JList<*>>().single { it.model.size > 0 }
+            val canvas = components.filterIsInstance<TemplateImageCanvas>().single()
+            view.editSelectedField { error("No dialog should open without a selected field") }
+            list.selectedIndex = 0
+            view.editSelectedField { null }
+            assertEquals(field, list.selectedValue)
+            assertEquals(listOf(field), canvas.fields)
+
+            view.editSelectedField { " \t " }
+            assertEquals(field, list.selectedValue)
+            assertEquals(listOf(field), canvas.fields)
+            assertTrue(components.filterIsInstance<JLabel>().any { it.text == "Feltnavnet kan ikke være tomt." })
+
+            components.filterIsInstance<JButton>().first { it.text == "Fjern" }.doClick()
+            assertFalse(components.filterIsInstance<JButton>().single { it.text == "Rediger" }.isEnabled)
         }
     }
 
