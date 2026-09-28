@@ -1,5 +1,6 @@
 package no.nav.tsm.ocr.template.view
 
+import org.example.no.nav.tsm.ocr.template.view.TemplateView
 import java.awt.BorderLayout
 import java.awt.event.ActionEvent
 import java.awt.event.ActionListener
@@ -12,7 +13,8 @@ class MainView : JFrame() {
     val comparisonView = ImageComparisonView()
     var currentFile: String? = null
     private val status = JLabel("Open a reference image and a second image.")
-    private val openItem = JMenuItem("Open template image")
+    private val newTemplateMenuItem = JMenuItem("New template item")
+    private val openTemplateMenuItem = JMenuItem("Open template image")
     private val openSecondItem = JMenuItem("Open test image")
 
     init {
@@ -78,7 +80,16 @@ class MainView : JFrame() {
         val newItem = JMenuItem("New")
         val exitItem = JMenuItem("Exit")
 
-        openItem.addActionListener { chooseImage(false) }
+        newItem.addActionListener {  }
+        newTemplateMenuItem.addActionListener {
+            val frame = JFrame("template")
+            frame.setSize(400, 400)
+            frame.isVisible = true
+            frame.defaultCloseOperation = JFrame.DISPOSE_ON_CLOSE
+
+            frame.add(TemplateView(null), BorderLayout.CENTER)
+        }
+        openTemplateMenuItem.addActionListener { chooseImage(false) }
         openSecondItem.addActionListener { chooseImage(true) }
 
 
@@ -86,7 +97,8 @@ class MainView : JFrame() {
         exitItem.addActionListener(ActionListener { e: ActionEvent? -> System.exit(0) })
 
         fileMenu.add(newItem)
-        fileMenu.add(openItem)
+        fileMenu.add(newTemplateMenuItem)
+        fileMenu.add(openTemplateMenuItem)
         fileMenu.add(openSecondItem)
         fileMenu.addSeparator()
         fileMenu.add(exitItem)
