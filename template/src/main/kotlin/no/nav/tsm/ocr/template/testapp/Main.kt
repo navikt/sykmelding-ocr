@@ -1,4 +1,4 @@
-package org.example.no.nav.tsm.ocr.template
+package no.nav.tsm.ocr.template.testapp
 
 import no.nav.tsm.sykmelding.ocr.Ocr
 import java.awt.BorderLayout

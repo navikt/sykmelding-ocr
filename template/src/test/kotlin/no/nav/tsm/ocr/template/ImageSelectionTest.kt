@@ -12,8 +12,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import no.nav.tsm.sykmelding.ocr.Ocr
-import org.example.no.nav.tsm.ocr.template.ImagePanel
-import org.example.no.nav.tsm.ocr.template.createDarkOverlay
+import no.nav.tsm.ocr.template.testapp.ImagePanel
+import no.nav.tsm.ocr.template.testapp.createDarkOverlay
 
 class ImageSelectionTest {
     @Test

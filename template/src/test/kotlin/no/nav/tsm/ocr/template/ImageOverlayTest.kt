@@ -1,8 +1,8 @@
 package no.nav.tsm.ocr.template
 
 import java.awt.image.BufferedImage
-import org.example.no.nav.tsm.ocr.template.ImagePanel
-import org.example.no.nav.tsm.ocr.template.createDarkOverlay
+import no.nav.tsm.ocr.template.testapp.ImagePanel
+import no.nav.tsm.ocr.template.testapp.createDarkOverlay
 import javax.swing.SwingUtilities
 import javax.imageio.ImageIO
 import kotlin.test.Test

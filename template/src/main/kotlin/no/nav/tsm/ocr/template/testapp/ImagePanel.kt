@@ -1,4 +1,4 @@
-package org.example.no.nav.tsm.ocr.template
+package no.nav.tsm.ocr.template.testapp
 
 import java.awt.BasicStroke
 import java.awt.Color
@@ -12,6 +12,14 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import javax.swing.JPanel
+import org.bytedeco.javacv.Java2DFrameConverter
+import org.bytedeco.javacv.OpenCVFrameConverter
+import org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGR2GRAY
+import org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGRA2GRAY
+import org.bytedeco.opencv.global.opencv_imgproc.cvtColor
+import org.bytedeco.opencv.opencv_core.KeyPointVector
+import org.bytedeco.opencv.opencv_core.Mat
+import org.bytedeco.opencv.opencv_features2d.ORB
 import javax.swing.SwingUtilities
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -19,14 +27,27 @@ import kotlin.math.roundToInt
 
 internal class ImagePanel(
     initialImage: BufferedImage,
-    var overlay: BufferedImage? = null
+    var overlay: BufferedImage? = null,
+    showOrb: Boolean = true,
 ) : JPanel() {
     var image: BufferedImage = initialImage
         set(value) {
             cancelSelection()
             field = value
+            orbKeypoints = if (showOrbKeypoints) detectOrb(value) else emptyList()
             repaint()
         }
+
+    var showOrbKeypoints: Boolean = showOrb
+        set(value) {
+            field = value
+            orbKeypoints = if (value) detectOrb(image) else emptyList()
+            repaint()
+        }
+
+    /** ORB keypoints in image pixel coordinates: x, y, size. */
+    var orbKeypoints: List<OrbKeypoint> = if (showOrb) detectOrb(initialImage) else emptyList()
+        private set
 
     private var onSelected: ((BufferedImage) -> Unit)? = null
     private var onInvalidSelection: (() -> Unit)? = null
@@ -121,6 +142,19 @@ internal class ImagePanel(
             overlay?.let {
                 g.drawImage(it, bounds.x, bounds.y, bounds.width, bounds.height, null)
             }
+            if (showOrbKeypoints && orbKeypoints.isNotEmpty()) {
+                val sx = bounds.width.toDouble() / image.width
+                val sy = bounds.height.toDouble() / image.height
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g.color = Color(0, 200, 0, 200)
+                g.stroke = BasicStroke(1f)
+                for (kp in orbKeypoints) {
+                    val cx = bounds.x + kp.x * sx
+                    val cy = bounds.y + kp.y * sy
+                    val r = maxOf(2.0, kp.size / 2 * sx)
+                    g.drawOval((cx - r).roundToInt(), (cy - r).roundToInt(), (2 * r).roundToInt(), (2 * r).roundToInt())
+                }
+            }
             selection?.let {
                 val x = bounds.x + (it.x.toDouble() * bounds.width / image.width).roundToInt()
                 val y = bounds.y + (it.y.toDouble() * bounds.height / image.height).roundToInt()
@@ -134,6 +168,38 @@ internal class ImagePanel(
             }
         } finally {
             g.dispose()
+        }
+    }
+}
+
+internal data class OrbKeypoint(val x: Double, val y: Double, val size: Double)
+
+internal fun detectOrb(image: BufferedImage, maxFeatures: Int = 1000): List<OrbKeypoint> {
+    val source = if (image.type == BufferedImage.TYPE_3BYTE_BGR) image else
+        BufferedImage(image.width, image.height, BufferedImage.TYPE_3BYTE_BGR).also {
+            val g = it.createGraphics()
+            g.drawImage(image, 0, 0, null)
+            g.dispose()
+        }
+    Java2DFrameConverter().use { java2d ->
+        OpenCVFrameConverter.ToMat().use { toMat ->
+            val mat = toMat.convert(java2d.convert(source)) ?: return emptyList()
+            Mat().use { gray ->
+                when (mat.channels()) {
+                    4 -> cvtColor(mat, gray, COLOR_BGRA2GRAY)
+                    3 -> cvtColor(mat, gray, COLOR_BGR2GRAY)
+                    else -> mat.copyTo(gray)
+                }
+                ORB.create(maxFeatures, 1.2f, 8, 31, 0, 2, ORB.HARRIS_SCORE, 31, 20).use { orb ->
+                    KeyPointVector().use { keypoints ->
+                        orb.detect(gray, keypoints)
+                        return (0 until keypoints.size()).map { i ->
+                            val kp = keypoints.get(i)
+                            OrbKeypoint(kp.pt().x().toDouble(), kp.pt().y().toDouble(), kp.size().toDouble())
+                        }
+                    }
+                }
+            }
         }
     }
 }

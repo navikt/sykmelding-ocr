@@ -1,4 +1,4 @@
-package org.example.no.nav.tsm.ocr.template
+package no.nav.tsm.ocr.template.testapp
 
 import org.bytedeco.javacpp.PointerScope
 import org.bytedeco.javacpp.indexer.FloatIndexer

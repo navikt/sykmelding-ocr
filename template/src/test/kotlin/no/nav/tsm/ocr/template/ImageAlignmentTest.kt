@@ -10,8 +10,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
-import org.example.no.nav.tsm.ocr.template.alignImages
-import org.example.no.nav.tsm.ocr.template.createDarkOverlay
+import no.nav.tsm.ocr.template.testapp.alignImages
+import no.nav.tsm.ocr.template.testapp.createDarkOverlay
 
 class ImageAlignmentTest {
     @Test
