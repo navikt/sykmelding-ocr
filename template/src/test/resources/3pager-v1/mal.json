@@ -1,0 +1,14 @@
+{
+  "navn" : "sykmelding-1-3",
+  "referansepunkter" : [ "referansepunkt-1.png" ],
+  "beskrivelse" : "side 1 av 3",
+  "felter" : [ {
+    "x" : 447,
+    "y" : 155,
+    "bredde" : 427,
+    "hoyde" : 34,
+    "navn" : "1.1",
+    "id" : "d25db024-a80f-42cb-b486-7b7a05f10c70"
+  } ],
+  "templateBilde" : "3pager-p1-ubc.png"
+}

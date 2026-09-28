@@ -1,6 +1,8 @@
 package no.nav.tsm.ocr.template.view
 
 import org.example.no.nav.tsm.ocr.template.view.TemplateView
+import org.example.no.nav.tsm.ocr.template.template.Template
+import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
 import java.awt.BorderLayout
 import java.awt.event.ActionEvent
 import java.awt.event.ActionListener
@@ -8,12 +10,14 @@ import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
 import javax.swing.*
+import javax.swing.filechooser.FileNameExtensionFilter
 
 class MainView : JFrame() {
     val comparisonView = ImageComparisonView()
     var currentFile: String? = null
     private val status = JLabel("Open a reference image and a second image.")
     private val newTemplateMenuItem = JMenuItem("New template item")
+    private val openSavedTemplateMenuItem = JMenuItem("Open template…")
     private val openTemplateMenuItem = JMenuItem("Open template image")
     private val openSecondItem = JMenuItem("Open test image")
 
@@ -62,6 +66,30 @@ class MainView : JFrame() {
         }
     }
 
+    private fun openTemplateEditor(template: Template? = null, file: File? = null) {
+        JFrame(template?.navn ?: "Ny mal").apply {
+            defaultCloseOperation = JFrame.DISPOSE_ON_CLOSE
+            add(TemplateView(template, templateFile = file), BorderLayout.CENTER)
+            pack()
+            setLocationRelativeTo(this@MainView)
+            isVisible = true
+        }
+    }
+
+    private fun chooseTemplate() {
+        val chooser = JFileChooser(".").apply {
+            dialogTitle = "Åpne mal"
+            fileFilter = FileNameExtensionFilter("Mal (JSON)", "json")
+        }
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return
+        try {
+            val file = chooser.selectedFile
+            openTemplateEditor(TemplateFiles.read(file), file)
+        } catch (e: Exception) {
+            JOptionPane.showMessageDialog(this, e.message, "Kunne ikke åpne malen", JOptionPane.ERROR_MESSAGE)
+        }
+    }
+
     private fun createMenuBar(): JMenuBar {
         val menuBar = JMenuBar()
 
@@ -81,14 +109,8 @@ class MainView : JFrame() {
         val exitItem = JMenuItem("Exit")
 
         newItem.addActionListener {  }
-        newTemplateMenuItem.addActionListener {
-            val frame = JFrame("template")
-            frame.setSize(400, 400)
-            frame.isVisible = true
-            frame.defaultCloseOperation = JFrame.DISPOSE_ON_CLOSE
-
-            frame.add(TemplateView(null), BorderLayout.CENTER)
-        }
+        newTemplateMenuItem.addActionListener { openTemplateEditor() }
+        openSavedTemplateMenuItem.addActionListener { chooseTemplate() }
         openTemplateMenuItem.addActionListener { chooseImage(false) }
         openSecondItem.addActionListener { chooseImage(true) }
 
@@ -98,6 +120,7 @@ class MainView : JFrame() {
 
         fileMenu.add(newItem)
         fileMenu.add(newTemplateMenuItem)
+        fileMenu.add(openSavedTemplateMenuItem)
         fileMenu.add(openTemplateMenuItem)
         fileMenu.add(openSecondItem)
         fileMenu.addSeparator()

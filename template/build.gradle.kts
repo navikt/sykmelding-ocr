@@ -12,6 +12,7 @@ repositories {
 }
 
 dependencies {
+    implementation(libs.jackson.module.kotlin)
     implementation(libs.bytedeco.javacv)
     implementation(project(":lib"))
     testImplementation("org.jetbrains.kotlin:kotlin-test")
