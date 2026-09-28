@@ -1,0 +1,182 @@
+{
+  "navn" : "config-mal-3p-s1",
+  "referansepunkter" : [ ],
+  "beskrivelse" : "",
+  "felter" : [ {
+    "x" : 444,
+    "y" : 155,
+    "bredde" : 432,
+    "hoyde" : 30,
+    "navn" : "Etternavn",
+    "id" : "b0ab58e8-8550-4a80-8af8-0bef936bb221"
+  }, {
+    "x" : 444,
+    "y" : 194,
+    "bredde" : 432,
+    "hoyde" : 28,
+    "navn" : "Fornavn",
+    "id" : "7792466a-59c9-422f-8f4c-ca4734e02875"
+  }, {
+    "x" : 444,
+    "y" : 232,
+    "bredde" : 430,
+    "hoyde" : 32,
+    "navn" : "Fødselsnummer",
+    "id" : "57d0f6c7-4c0e-4319-90e9-4d9a6ca766c0"
+  }, {
+    "x" : 443,
+    "y" : 270,
+    "bredde" : 428,
+    "hoyde" : 28,
+    "navn" : "Telefon",
+    "id" : "44a31c8c-e6d6-4444-a4e3-5e4f9cb922c0"
+  }, {
+    "x" : 446,
+    "y" : 308,
+    "bredde" : 430,
+    "hoyde" : 32,
+    "navn" : "Fastlege",
+    "id" : "93c4120b-0024-40c7-b5f3-8343d2af4273"
+  }, {
+    "x" : 447,
+    "y" : 344,
+    "bredde" : 429,
+    "hoyde" : 30,
+    "navn" : "NAV-kontor",
+    "id" : "7076763a-234b-41e6-adeb-ed56ebf55fee"
+  }, {
+    "x" : 451,
+    "y" : 423,
+    "bredde" : 421,
+    "hoyde" : 27,
+    "navn" : "Pasienten har:",
+    "id" : "58686e18-27ed-45ef-b8b6-f86f020760de"
+  }, {
+    "x" : 446,
+    "y" : 461,
+    "bredde" : 425,
+    "hoyde" : 33,
+    "navn" : "Arbeidsgiver for denne sykmeldingen",
+    "id" : "1ff24881-4080-41a2-af95-9c9d90c7e2dc"
+  }, {
+    "x" : 446,
+    "y" : 501,
+    "bredde" : 425,
+    "hoyde" : 27,
+    "navn" : "Yrke/stilling for dette arbeidsforholdet",
+    "id" : "7b4a66ea-bab4-46cd-b0db-64b011eb1388"
+  }, {
+    "x" : 449,
+    "y" : 536,
+    "bredde" : 421,
+    "hoyde" : 32,
+    "navn" : "Stillingsprosent",
+    "id" : "c8143b6c-6810-4122-9300-aed5861123b0"
+  }, {
+    "x" : 296,
+    "y" : 633,
+    "bredde" : 140,
+    "hoyde" : 39,
+    "navn" : "Hoveddiagnose - kodesystem",
+    "id" : "8339121c-fc9c-43fa-9a20-727b974cda7d"
+  }, {
+    "x" : 443,
+    "y" : 635,
+    "bredde" : 139,
+    "hoyde" : 33,
+    "navn" : "Hoveddiagnose - kode",
+    "id" : "b0dddd31-bcfd-4c90-b63c-9d06928a2fdf"
+  }, {
+    "x" : 588,
+    "y" : 632,
+    "bredde" : 286,
+    "hoyde" : 38,
+    "navn" : "Hoveddiagnose - diagnose tekst",
+    "id" : "c468e7c5-3fef-4022-8d47-32ee3dfb9a9b"
+  }, {
+    "x" : 297,
+    "y" : 695,
+    "bredde" : 140,
+    "hoyde" : 33,
+    "navn" : "bidiagnoser - kodesystem",
+    "id" : "8fa028bd-bbb3-48d4-8e0d-d726a16323a2"
+  }, {
+    "x" : 447,
+    "y" : 697,
+    "bredde" : 132,
+    "hoyde" : 33,
+    "navn" : "bidiagnoser - kode",
+    "id" : "65682191-c684-44f6-9fb0-6f13386a3c16"
+  }, {
+    "x" : 588,
+    "y" : 698,
+    "bredde" : 290,
+    "hoyde" : 33,
+    "navn" : "bidiagnoser - diagnose tekst",
+    "id" : "fc857d3b-26fa-4ab6-bf4d-32c5fa1a0b3c"
+  }, {
+    "x" : 294,
+    "y" : 771,
+    "bredde" : 143,
+    "hoyde" : 65,
+    "navn" : "lovfestet fraværsgrunn",
+    "id" : "deb18ca9-e667-4d1c-ad8d-9437b4890148"
+  }, {
+    "x" : 446,
+    "y" : 760,
+    "bredde" : 428,
+    "hoyde" : 73,
+    "navn" : "beskriv fraværsgrunn",
+    "id" : "47402504-e9c2-4566-be52-57b0d87ea6d6"
+  }, {
+    "x" : 100,
+    "y" : 851,
+    "bredde" : 26,
+    "hoyde" : 26,
+    "navn" : "svangerskapsrelatert",
+    "id" : "550c1d84-400c-4bef-a1c7-bde03af7ff12"
+  }, {
+    "x" : 389,
+    "y" : 853,
+    "bredde" : 26,
+    "hoyde" : 23,
+    "navn" : "yrkesskade",
+    "id" : "24eae3db-111b-4280-b20d-a414dd9d03ff"
+  }, {
+    "x" : 655,
+    "y" : 865,
+    "bredde" : 221,
+    "hoyde" : 33,
+    "navn" : "skadedato",
+    "id" : "8b4bf19a-1f34-44ce-8a37-428b7399aa2a"
+  }, {
+    "x" : 101,
+    "y" : 916,
+    "bredde" : 28,
+    "hoyde" : 20,
+    "navn" : "skjerme pasient",
+    "id" : "1980eaa2-b82e-417a-af76-d0c257b252ec"
+  }, {
+    "x" : 11,
+    "y" : 20,
+    "bredde" : 295,
+    "hoyde" : 30,
+    "navn" : "tittel - etternavn",
+    "id" : "f9520ecf-b090-4f1d-82cf-d31653d00746"
+  }, {
+    "x" : 320,
+    "y" : 22,
+    "bredde" : 304,
+    "hoyde" : 29,
+    "navn" : "tittel - fornavn",
+    "id" : "1782ab87-b673-46c4-aae1-cf3fc980be95"
+  }, {
+    "x" : 630,
+    "y" : 24,
+    "bredde" : 244,
+    "hoyde" : 32,
+    "navn" : "tittel - fødselsnummer",
+    "id" : "60a16395-2ba7-468d-8cf8-f38475ee8662"
+  } ],
+  "templateBilde" : "3pager-p1-ubc.png"
+}
