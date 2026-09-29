@@ -4,6 +4,7 @@ import org.example.no.nav.tsm.ocr.template.view.TemplateView
 import org.example.no.nav.tsm.ocr.template.template.Template
 import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
 import java.awt.BorderLayout
+import java.awt.Dimension
 import java.awt.event.ActionEvent
 import java.awt.event.ActionListener
 import java.awt.image.BufferedImage
@@ -13,9 +14,9 @@ import javax.swing.*
 import javax.swing.filechooser.FileNameExtensionFilter
 
 class MainView : JFrame() {
-    val comparisonView = ImageComparisonView()
-    var currentFile: String? = null
     private val status = JLabel("Open a reference image and a second image.")
+    val comparisonView = ImageComparisonView { status.text = it }
+    var currentFile: String? = null
     private val newTemplateMenuItem = JMenuItem("New template item")
     private val openSavedTemplateMenuItem = JMenuItem("Open template…")
     private val openTemplateMenuItem = JMenuItem("Open template image")
@@ -34,7 +35,8 @@ class MainView : JFrame() {
 
 
     fun createUI() {
-        setSize(1200, 800)
+        setSize(1500, 900)
+        minimumSize = Dimension(1100, 750)
         jMenuBar = createMenuBar()
         add(comparisonView, BorderLayout.CENTER)
         add(status, BorderLayout.SOUTH)
@@ -44,7 +46,6 @@ class MainView : JFrame() {
         comparisonView.loadReference(readImage(selectedFile))
         currentFile = selectedFile.path
         File("config.txt").writeText(selectedFile.path)
-        status.text = "First image: ${selectedFile.name}"
     }
 
     private fun readImage(file: File): BufferedImage =
@@ -57,7 +58,6 @@ class MainView : JFrame() {
         try {
             if (second) {
                 comparisonView.loadSecond(readImage(chooser.selectedFile))
-                status.text = "Second image: ${chooser.selectedFile.name}"
             } else {
                 openImage(chooser.selectedFile)
             }
@@ -87,6 +87,19 @@ class MainView : JFrame() {
             openTemplateEditor(TemplateFiles.read(file), file)
         } catch (e: Exception) {
             JOptionPane.showMessageDialog(this, e.message, "Kunne ikke åpne malen", JOptionPane.ERROR_MESSAGE)
+        }
+    }
+
+    private fun chooseConfiguration() {
+        val chooser = JFileChooser(".").apply {
+            dialogTitle = "Load configuration"
+            fileFilter = FileNameExtensionFilter("Template configuration (JSON)", "json")
+        }
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return
+        try {
+            currentFile = comparisonView.loadConfiguration(chooser.selectedFile).templateBilde
+        } catch (e: Exception) {
+            JOptionPane.showMessageDialog(this, e.message, "Could not load configuration", JOptionPane.ERROR_MESSAGE)
         }
     }
 
@@ -121,6 +134,9 @@ class MainView : JFrame() {
         fileMenu.add(newItem)
         fileMenu.add(newTemplateMenuItem)
         fileMenu.add(openSavedTemplateMenuItem)
+        fileMenu.add(JMenuItem("Load configuration…").apply {
+            addActionListener { chooseConfiguration() }
+        })
         fileMenu.add(openTemplateMenuItem)
         fileMenu.add(openSecondItem)
         fileMenu.addSeparator()

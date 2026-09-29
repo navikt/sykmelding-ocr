@@ -1,5 +1,6 @@
 package no.nav.tsm.ocr.template.view
 
+import org.example.no.nav.tsm.ocr.template.template.Felter
 import org.bytedeco.javacpp.PointerScope
 import org.bytedeco.javacpp.indexer.IntIndexer
 import org.bytedeco.opencv.global.opencv_core.*
@@ -12,7 +13,10 @@ import org.bytedeco.opencv.opencv_imgproc.Vec4iVector
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.Polygon
+import java.awt.RenderingHints
+import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
 import javax.swing.JPanel
@@ -36,6 +40,8 @@ class ImagePanel() : JPanel() {
     private var lineOverlay: BufferedImage? = null
     private var gridMode: GridMode? = null
     private val gridOverlays = mutableMapOf<GridMode, BufferedImage>()
+    private var fields: List<Felter> = emptyList()
+    private var selectedField = -1
     var image: BufferedImage? = null
 
     var imgWidth: Int = 0
@@ -49,6 +55,8 @@ class ImagePanel() : JPanel() {
         orbImage = null
         lineOverlay = null
         gridOverlays.clear()
+        fields = emptyList()
+        selectedField = -1
         if (showOrbKeypoints) showOrbs()
         if (showHoughLines) showLines()
         gridMode?.let { showGrids(it) }
@@ -72,9 +80,35 @@ class ImagePanel() : JPanel() {
             lineOverlay?.let { g.drawImage(it, 0, 0, renderWidth, renderHight, null) }
         }
         gridOverlays[gridMode]?.let { g.drawImage(it, 0, 0, renderWidth, renderHight, null) }
+        val source = image ?: return
+        val overlay = g.create() as Graphics2D
+        try {
+            overlay.clipRect(0, 0, renderWidth, renderHight)
+            overlay.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val scaleX = renderWidth.toDouble() / source.width
+            val scaleY = renderHight.toDouble() / source.height
+            fields.forEachIndexed { index, field ->
+                val rectangle = Rectangle2D.Double(
+                    field.x * scaleX, field.y * scaleY, field.bredde * scaleX, field.hoyde * scaleY,
+                )
+                if (index == selectedField) {
+                    overlay.color = Color(255, 0, 0, 25)
+                    overlay.fill(rectangle)
+                }
+                overlay.color = Color.RED
+                overlay.stroke = BasicStroke(if (index == selectedField) 3f else 1.5f)
+                overlay.draw(rectangle)
+            }
+        } finally {
+            overlay.dispose()
+        }
     }
 
-
+    fun showFields(fields: List<Felter>, selectedIndex: Int = -1) {
+        this.fields = fields.toList()
+        selectedField = selectedIndex
+        repaint()
+    }
 
     fun showOrbs(show: Boolean = true) {
         showOrbKeypoints = show

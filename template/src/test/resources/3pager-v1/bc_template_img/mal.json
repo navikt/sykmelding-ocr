@@ -1,0 +1,49 @@
+{
+  "navn" : "mal-3-p1-ref",
+  "referansepunkter" : [ "referansepunkt-1.png", "referansepunkt-4.png", "referansepunkt-5.png", "referansepunkt-2.png", "referansepunkt-3.png" ],
+  "beskrivelse" : "",
+  "felter" : [ {
+    "x" : 370,
+    "y" : 290,
+    "bredde" : 349,
+    "hoyde" : 24,
+    "navn" : "1.1.1",
+    "id" : "656f4346-75d8-4868-aeb5-ad210a5ca85e"
+  }, {
+    "x" : 369,
+    "y" : 321,
+    "bredde" : 347,
+    "hoyde" : 24,
+    "navn" : "1.1.2",
+    "id" : "f5a059cc-bc4b-4c43-b7c3-59dbc4816c5a"
+  }, {
+    "x" : 371,
+    "y" : 350,
+    "bredde" : 345,
+    "hoyde" : 26,
+    "navn" : "1.2",
+    "id" : "b3fc40ee-ac7f-4eb0-a613-34563d252aa2"
+  }, {
+    "x" : 369,
+    "y" : 677,
+    "bredde" : 114,
+    "hoyde" : 27,
+    "navn" : "3.1.2",
+    "id" : "98d5be48-5d94-49e9-81b4-4159d51c9d28"
+  }, {
+    "x" : 251,
+    "y" : 677,
+    "bredde" : 111,
+    "hoyde" : 25,
+    "navn" : "3.1.1",
+    "id" : "9ce9e0e6-88a2-45a9-ab34-dc7e4edb7bf6"
+  }, {
+    "x" : 487,
+    "y" : 676,
+    "bredde" : 227,
+    "hoyde" : 28,
+    "navn" : "3.1.3",
+    "id" : "93f37377-e1af-4cac-9aab-38d8afc9928d"
+  } ],
+  "templateBilde" : "../3pager-p1.png"
+}
