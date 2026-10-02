@@ -39,7 +39,7 @@ class ConfigurationOverlayTest {
             val incoming = image()
             view.loadSecond(incoming)
             val controls = descendants(view).toList()
-            val apply = controls.filterIsInstance<JButton>().single()
+            val apply = controls.filterIsInstance<JButton>().single { it.text == "Apply configuration" }
             assertFalse(apply.isEnabled)
 
             view.loadConfiguration(file)
@@ -55,7 +55,7 @@ class ConfigurationOverlayTest {
             assertTrue(status.contains("document not aligned"))
             assertEquals(Color.WHITE.rgb, incoming.getRGB(40, 50))
 
-            val list = controls.filterIsInstance<JList<*>>().single()
+            val list = controls.filterIsInstance<JList<*>>().first()
             list.selectedIndex = 0
             assertTrue(controls.filterIsInstance<JTextArea>().any {
                 it.text.contains("x: 40 px") && it.text.contains("Width: 60 px") && it.text.contains("ID: name")
@@ -80,7 +80,7 @@ class ConfigurationOverlayTest {
         val file = configuration()
         SwingUtilities.invokeAndWait {
             val view = ImageComparisonView()
-            val apply = descendants(view).filterIsInstance<JButton>().single()
+            val apply = descendants(view).filterIsInstance<JButton>().single { it.text == "Apply configuration" }
             view.loadConfiguration(file)
             assertFalse(apply.isEnabled)
             view.loadSecond(image())
@@ -95,7 +95,7 @@ class ConfigurationOverlayTest {
             apply.doClick()
             view.loadReference(image())
             assertFalse(apply.isEnabled)
-            assertEquals(0, descendants(view).filterIsInstance<JList<*>>().single().model.size)
+            assertTrue(descendants(view).filterIsInstance<JList<*>>().all { it.model.size == 0 })
             assertEquals(Color.WHITE.rgb, render(view.templatePanal).getRGB(40, 50))
             assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
         }
@@ -109,7 +109,7 @@ class ConfigurationOverlayTest {
             val view = ImageComparisonView { status = it }
             view.loadConfiguration(file)
             view.loadSecond(image(400, 200))
-            descendants(view).filterIsInstance<JButton>().single().doClick()
+            descendants(view).filterIsInstance<JButton>().single { it.text == "Apply configuration" }.doClick()
             assertTrue(status.contains("dimensions differ"))
             assertTrue(status.contains("not been rescaled"))
             assertEquals(Color.RED.rgb, render(view.secondPanel, 400, 200).getRGB(40, 50))
@@ -118,7 +118,7 @@ class ConfigurationOverlayTest {
             assertEquals(Color.WHITE.rgb, render(view.secondPanel, 400, 200).getRGB(160, 50))
 
             view.loadSecond(image(80, 50))
-            descendants(view).filterIsInstance<JButton>().single().doClick()
+            descendants(view).filterIsInstance<JButton>().single { it.text == "Apply configuration" }.doClick()
             assertTrue(status.contains("1 field(s) extend beyond"))
         }
     }
@@ -130,7 +130,7 @@ class ConfigurationOverlayTest {
             val view = ImageComparisonView()
             view.loadConfiguration(file)
             view.loadSecond(image())
-            descendants(view).filterIsInstance<JButton>().single().doClick()
+            descendants(view).filterIsInstance<JButton>().single { it.text == "Apply configuration" }.doClick()
             for (invalidFields in listOf(
                 listOf(field.copy(x = -1)),
                 listOf(field.copy(bredde = 0)),
@@ -142,7 +142,7 @@ class ConfigurationOverlayTest {
                 val invalid = configuration(invalidFields)
                 assertFails { view.loadConfiguration(invalid) }
                 assertEquals(Color.RED.rgb, render(view.secondPanel).getRGB(40, 50))
-                assertEquals(field, descendants(view).filterIsInstance<JList<*>>().single().model.getElementAt(0))
+                assertEquals(field, descendants(view).filterIsInstance<JList<*>>().first().model.getElementAt(0))
             }
             val invalid = directory.resolve("broken.json")
             invalid.writeText("not json")
@@ -162,7 +162,7 @@ class ConfigurationOverlayTest {
             val view = ImageComparisonView { status = it }
             view.loadSecond(image())
             view.loadConfiguration(file)
-            assertFalse(descendants(view).filterIsInstance<JButton>().single().isEnabled)
+            assertTrue(descendants(view).filterIsInstance<JButton>().all { !it.isEnabled })
             assertFalse(descendants(view).filterIsInstance<JCheckBox>().single().isEnabled)
             assertTrue(status.contains("no fields"))
         }

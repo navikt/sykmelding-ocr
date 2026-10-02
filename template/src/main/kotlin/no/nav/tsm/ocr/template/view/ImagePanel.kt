@@ -1,6 +1,7 @@
 package no.nav.tsm.ocr.template.view
 
 import org.example.no.nav.tsm.ocr.template.template.Felter
+import no.nav.tsm.sykmelding.ocr.ReferencesRectangle
 import org.bytedeco.javacpp.PointerScope
 import org.bytedeco.javacpp.indexer.IntIndexer
 import org.bytedeco.opencv.global.opencv_core.*
@@ -42,6 +43,8 @@ class ImagePanel() : JPanel() {
     private val gridOverlays = mutableMapOf<GridMode, BufferedImage>()
     private var fields: List<Felter> = emptyList()
     private var selectedField = -1
+    private var references: List<ReferencesRectangle?> = emptyList()
+    private var selectedReference = -1
     var image: BufferedImage? = null
 
     var imgWidth: Int = 0
@@ -57,6 +60,8 @@ class ImagePanel() : JPanel() {
         gridOverlays.clear()
         fields = emptyList()
         selectedField = -1
+        references = emptyList()
+        selectedReference = -1
         if (showOrbKeypoints) showOrbs()
         if (showHoughLines) showLines()
         gridMode?.let { showGrids(it) }
@@ -99,6 +104,20 @@ class ImagePanel() : JPanel() {
                 overlay.stroke = BasicStroke(if (index == selectedField) 3f else 1.5f)
                 overlay.draw(rectangle)
             }
+            references.forEachIndexed { index, reference ->
+                if (reference == null) return@forEachIndexed
+                val rectangle = Rectangle2D.Double(
+                    reference.x * scaleX, reference.y * scaleY,
+                    reference.width * scaleX, reference.height * scaleY,
+                )
+                if (index == selectedReference) {
+                    overlay.color = Color(0, 0, 255, 25)
+                    overlay.fill(rectangle)
+                }
+                overlay.color = Color.BLUE
+                overlay.stroke = BasicStroke(if (index == selectedReference) 3f else 1.5f)
+                overlay.draw(rectangle)
+            }
         } finally {
             overlay.dispose()
         }
@@ -107,6 +126,12 @@ class ImagePanel() : JPanel() {
     fun showFields(fields: List<Felter>, selectedIndex: Int = -1) {
         this.fields = fields.toList()
         selectedField = selectedIndex
+        repaint()
+    }
+
+    fun showReferences(references: List<ReferencesRectangle?>, selectedIndex: Int = -1) {
+        this.references = references.toList()
+        selectedReference = selectedIndex
         repaint()
     }
 
