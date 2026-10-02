@@ -1,19 +1,28 @@
 package no.nav.tsm.sykmelding.ocr
 
+import org.bytedeco.javacpp.DoublePointer
+import org.bytedeco.javacv.Java2DFrameUtils
+import org.bytedeco.opencv.global.opencv_core.CV_32FC1
+import org.bytedeco.opencv.global.opencv_core.NORM_MINMAX
+import org.bytedeco.opencv.global.opencv_core.minMaxLoc
+import org.bytedeco.opencv.global.opencv_core.normalize
+import org.bytedeco.opencv.global.opencv_imgproc.TM_CCOEFF_NORMED
+import org.bytedeco.opencv.global.opencv_imgproc.matchTemplate
+import org.bytedeco.opencv.global.opencv_imgproc.rectangle
+import org.bytedeco.opencv.opencv_core.Mat
+import org.bytedeco.opencv.opencv_core.Point
+import org.bytedeco.opencv.opencv_core.Scalar
 import org.bytedeco.tesseract.TessBaseAPI
-import org.bytedeco.tesseract.global.tesseract
 import org.bytedeco.tesseract.global.tesseract.OEM_LSTM_ONLY
 import org.bytedeco.tesseract.global.tesseract.PSM_AUTO
-import org.bytedeco.tesseract.global.tesseract.PSM_SINGLE_BLOCK
-import org.bytedeco.tesseract.global.tesseract.PSM_SPARSE_TEXT
 import org.bytedeco.tesseract.global.tesseract.TessDeleteText
-import org.opencv.text.Text
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import javax.swing.JLabel
 
 enum class PSM_MODE(val value: Int) {
     PSM_OSD_ONLY(0),
@@ -63,13 +72,14 @@ class Ocr {
                 tesseract.End()
             })
         }
-       /* val tesseract = Tesseract().apply {
-            setDatapath("")
-            setLanguage("nor")
-            setOcrEngineMode(1) // LSTM only (required for "best" tessdata)
-            setVariable("debug_file", "NUL")
-        }*/
+        /* val tesseract = Tesseract().apply {
+             setDatapath("")
+             setLanguage("nor")
+             setOcrEngineMode(1) // LSTM only (required for "best" tessdata)
+             setVariable("debug_file", "NUL")
+         }*/
     }
+
     public fun parse(img: BufferedImage, field: Field? = null, psmMode: PSM_MODE = PSM_MODE.PSM_AUTO): String? {
         tesseract.SetPageSegMode(psmMode.value)
         val subImage = field?.let {
@@ -102,23 +112,23 @@ class Ocr {
         }
     }
 
-   /* public fun getTextsRegions(img: BufferedImage): List<Rectangle?>? {
-        return tesseract.getSegmentedRegions(img, ITessAPI.TessPageIteratorLevel.RIL_WORD)
-    }
+    /* public fun getTextsRegions(img: BufferedImage): List<Rectangle?>? {
+         return tesseract.getSegmentedRegions(img, ITessAPI.TessPageIteratorLevel.RIL_WORD)
+     }
 
-    public fun parse(img: BufferedImage): String? {
+     public fun parse(img: BufferedImage): String? {
 
-        tesseract.setPageSegMode(11)
-        return tesseract.doOCR(img)
-    }
+         tesseract.setPageSegMode(11)
+         return tesseract.doOCR(img)
+     }
 
-    fun parseFnr(img: BufferedImage, field: Field): String? {
-        val subImage = img.getSubimage(field.x, field.y, field.width, field.height)
-        tesseract.setVariable("tessedit_char_whitelist", "0123456789-")
-        tesseract.setVariable("", "true")
-        tesseract.setPageSegMode(PSM_SINGLE_LINE)
-        return tesseract.doOCR(subImage)
-    }*/
+     fun parseFnr(img: BufferedImage, field: Field): String? {
+         val subImage = img.getSubimage(field.x, field.y, field.width, field.height)
+         tesseract.setVariable("tessedit_char_whitelist", "0123456789-")
+         tesseract.setVariable("", "true")
+         tesseract.setPageSegMode(PSM_SINGLE_LINE)
+         return tesseract.doOCR(subImage)
+     }*/
 }
 
 
@@ -159,7 +169,82 @@ class SykmeldingOcr(val ocr: Ocr) {
         }
         return parseResults
     }
+
+    public fun findReferences(
+        referenceImage: BufferedImage,
+        searchImage: BufferedImage,
+        configs: Map<String, Any?> = emptyMap()
+    ): List<ReferencesRectangle> {
+        val referenceImgMat = Java2DFrameUtils.toMat(referenceImage)
+        val searchImgMat = Java2DFrameUtils.toMat(searchImage)
+
+        val result = Mat()
+
+        if (referenceImgMat.empty() || searchImgMat.empty()) {
+            println("One of the images is empty, cannot perform template matching.")
+            return emptyList()
+        }
+
+        val resultCols = referenceImgMat.cols() - searchImgMat.cols() + 1
+        val resultRows = referenceImgMat.rows() - searchImgMat.rows() + 1
+        result.create(resultRows, resultCols, CV_32FC1)
+
+        matchTemplate(referenceImgMat, searchImgMat, result, TM_CCOEFF_NORMED)
+        normalize(result, result, 0.0, 1.0, NORM_MINMAX, -1, null)
+
+
+        val minVal = DoublePointer(1)
+        val maxVal = DoublePointer(1)
+        val minLoc = Point()
+        val maxLoc = Point()
+
+        minMaxLoc(result, minVal, maxVal, minLoc, maxLoc, null)
+        val matchLoc = maxLoc
+        val confidence = maxVal.get()
+
+        rectangle(
+            referenceImgMat,
+            matchLoc,
+            Point(maxLoc.x() + searchImgMat.cols(), maxLoc.y() + searchImgMat.rows()),
+            Scalar(0.0, 0.0, 255.0, 0.0),
+            2,
+            8,
+            0
+        )
+
+        rectangle(
+            result,
+            matchLoc,
+            Point(maxLoc.x() + searchImgMat.cols(), maxLoc.y() + searchImgMat.rows()),
+            Scalar(0.0, 0.0, 255.0, 0.0),
+            2,
+            8,
+            0
+        )
+
+        val resultRectangle = ReferencesRectangle(
+            x = matchLoc.x(),
+            y = matchLoc.y(),
+            width = searchImgMat.cols(),
+            height = searchImgMat.rows(),
+            confidence = confidence.toFloat()
+        )
+
+        // burde denne ha ein anna x og y kanskje ?
+        val referenceImgRectangle = ReferencesRectangle(
+            x = matchLoc.x(),
+            y = matchLoc.y(),
+            width = referenceImgMat.cols(),
+            height = referenceImgMat.rows(),
+            confidence = confidence.toFloat()
+
+        )
+
+        return listOf(resultRectangle, referenceImgRectangle)
+    }
 }
+
+data class ReferencesRectangle(val x: Int, val y: Int, val width: Int, val height: Int, val confidence: Float? = null)
 
 data class Field(
     val x: Int,
