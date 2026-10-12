@@ -162,7 +162,8 @@ class ConfigurationOverlayTest {
             val view = ImageComparisonView { status = it }
             view.loadSecond(image())
             view.loadConfiguration(file)
-            assertTrue(descendants(view).filterIsInstance<JButton>().all { !it.isEnabled })
+            assertTrue(descendants(view).filterIsInstance<JButton>()
+                .filter { it.text.startsWith("Apply") }.all { !it.isEnabled })
             assertFalse(descendants(view).filterIsInstance<JCheckBox>().single().isEnabled)
             assertTrue(status.contains("no fields"))
         }

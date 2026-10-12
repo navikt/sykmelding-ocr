@@ -6,22 +6,26 @@ import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
 import no.nav.tsm.sykmelding.ocr.Ocr
 import no.nav.tsm.sykmelding.ocr.ReferencesRectangle
 import no.nav.tsm.sykmelding.ocr.SykmeldingOcr
+import org.bytedeco.javacpp.PointerScope
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.GridLayout
 import java.awt.Color
 import java.awt.GraphicsEnvironment
+import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.File
 import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
 import javax.imageio.ImageIO
 import javax.swing.*
+import kotlin.math.roundToInt
 
 class ImageComparisonView(
     private val findReferences: (BufferedImage, BufferedImage) -> List<ReferencesRectangle> = { image, reference ->
-        SykmeldingOcr(Ocr()).findReferences(image, reference)
+        val matcher = SykmeldingOcr(Ocr())
+        PointerScope().use { matcher.findReferences(image, reference) }
     },
     private val onStatus: (String) -> Unit = {},
 ) : JPanel(BorderLayout()) {
@@ -30,6 +34,14 @@ class ImageComparisonView(
     private val panels = listOf(templatePanal, secondPanel)
     private var configuration: Template? = null
     private var configurationApplied = false
+    private var originalTemplateImage: BufferedImage? = null
+    private var originalReferenceImages = emptyList<BufferedImage>()
+    private var resizeWorker: SwingWorker<ResizedImages, Unit>? = null
+    private data class ResizedImages(
+        val incoming: BufferedImage,
+        val template: BufferedImage,
+        val references: List<BufferedImage>,
+    )
     private val fields = DefaultListModel<Felter>()
     private val fieldList = JList(fields)
     private val summary = textArea("No configuration loaded.")
@@ -37,12 +49,38 @@ class ImageComparisonView(
     private val references = DefaultListModel<File>()
     private val referenceList = JList(references)
     private val referenceDetails = textArea("Select a reference image to locate it on the template.")
+    private val imageSizes = JLabel("Open both images to adjust their size.")
+    private val dpiButton = JButton("Convert both to A4 at 400 DPI").apply {
+        toolTipText = "Resample full A4 pages, using the template orientation. Ignores embedded DPI."
+        isEnabled = false
+        addActionListener { resizeImages(convertToA4 = true) }
+    }
+    private val sizeButton = JButton("Match incoming size to template").apply {
+        toolTipText = "Match exact pixel width and height; may stretch the incoming document."
+        isEnabled = false
+        addActionListener { resizeImages(convertToA4 = false) }
+    }
+    private val resetImagesButton = JButton("Reset image sizes").apply {
+        isEnabled = false
+        addActionListener {
+            cancelResize()
+            clearReferenceMatches()
+            referenceList.clearSelection()
+            originalTemplateImage?.let { templatePanal.load(it) }
+            referenceImages = originalReferenceImages
+            templateMatches = List(referenceImages.size) { null }
+            updateFieldList()
+            resetSecondImage()
+            onStatus("Original image sizes restored — apply reference images again.")
+        }
+    }
     private var referenceImages = emptyList<BufferedImage>()
     private var templateMatches = emptyList<ReferencesRectangle?>()
     private var incomingMatches = emptyList<ReferencesRectangle?>()
     private var templateWorker: SwingWorker<List<ReferencesRectangle?>, Unit>? = null
     private var incomingWorker: SwingWorker<List<ReferencesRectangle?>, Unit>? = null
     private val applyReferencesButton = JButton("Apply reference images").apply {
+        toolTipText = "Normalize both full A4 pages to 400 DPI, then find the reference images."
         isEnabled = false
         addActionListener { applyReferences() }
     }
@@ -68,11 +106,7 @@ class ImageComparisonView(
         }
         fieldList.addListSelectionListener {
             if (!it.valueIsAdjusting) {
-                val field = fieldList.selectedValue
-                details.text = if (field == null) "Select a field to inspect its coordinates." else
-                    "${field.navn}\n\nx: ${field.x} px\ny: ${field.y} px\n" +
-                        "Width: ${field.bredde} px\nHeight: ${field.hoyde} px\n\nID: ${field.id}"
-                details.caretPosition = 0
+                updateFieldDetails()
                 refreshFields()
             }
         }
@@ -95,7 +129,13 @@ class ImageComparisonView(
             add(labeledPanel("Template — reference", templatePanal))
             add(labeledPanel("Incoming document — not aligned", secondPanel))
         }
-        add(JSplitPane(JSplitPane.HORIZONTAL_SPLIT, images, createSidebar()).apply {
+        val sidebar = JScrollPane(createSidebar()).apply {
+            preferredSize = Dimension(360, 700)
+            minimumSize = Dimension(280, 300)
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            border = BorderFactory.createEmptyBorder()
+        }
+        add(JSplitPane(JSplitPane.HORIZONTAL_SPLIT, images, sidebar).apply {
             resizeWeight = 1.0
             isContinuousLayout = true
             border = BorderFactory.createEmptyBorder()
@@ -122,18 +162,22 @@ class ImageComparisonView(
             }
         }
 
+        cancelResize()
         clearReferenceMatches()
         templatePanal.load(image)
+        originalTemplateImage = image
+        originalSecondImage?.let { secondPanel.load(it) }
         configuration = template
         configurationApplied = false
         fields.clear()
         template.felter.forEach { fields.addElement(it) }
         references.clear()
         referenceImages = loadedReferences
+        originalReferenceImages = loadedReferences
         templateMatches = List(loadedReferences.size) { null }
         template.referansepunkter.forEach { references.addElement(File(it)) }
         summary.text = "${file.name}\n${template.navn}\n\n${template.beskrivelse}\n" +
-            "${image.width} × ${image.height} px\n${fields.size()} fields\n" +
+            "Original template: ${image.width} × ${image.height} px\n${fields.size()} fields\n" +
             "${template.referansepunkter.size} reference images"
         summary.caretPosition = 0
         summary.toolTipText = file.absolutePath
@@ -150,13 +194,16 @@ class ImageComparisonView(
     }
 
     fun loadReference(image: BufferedImage) {
+        cancelResize()
         clearReferenceMatches()
         templatePanal.load(image)
+        originalTemplateImage = image
         configuration = null
         configurationApplied = false
         fields.clear()
         references.clear()
         referenceImages = emptyList()
+        originalReferenceImages = emptyList()
         summary.text = "No configuration loaded."
         summary.toolTipText = null
         resetSecondImage()
@@ -164,6 +211,7 @@ class ImageComparisonView(
     }
 
     fun loadSecond(image: BufferedImage) {
+        cancelResize()
         clearIncomingMatches()
         originalSecondImage = image
         secondPanel.load(image)
@@ -178,6 +226,7 @@ class ImageComparisonView(
     }
 
     fun resetSecondImage() {
+        cancelResize()
         clearIncomingMatches()
         originalSecondImage?.let { secondPanel.load(it) }
         configurationApplied = false
@@ -186,12 +235,12 @@ class ImageComparisonView(
     }
 
     private fun applyConfiguration() {
-        val template = configuration ?: return
-        val incoming = originalSecondImage ?: return
+        if (configuration == null) return
+        val incoming = secondPanel.image ?: return
         configurationApplied = true
         showFields.isSelected = true
         refreshFields()
-        val outside = template.felter.count { !it.fitsInside(incoming) }
+        val outside = displayedFields().count { !it.fitsInside(incoming) }
         val reference = requireNotNull(templatePanal.image)
         val warning = when {
             outside > 0 -> " $outside field(s) extend beyond the incoming image."
@@ -204,11 +253,24 @@ class ImageComparisonView(
 
     private fun updateControls() {
         showFields.isEnabled = configuration != null && !fields.isEmpty
-        applyButton.isEnabled = showFields.isEnabled && originalSecondImage != null
-        applyReferencesButton.isEnabled = !references.isEmpty && originalSecondImage != null && incomingWorker == null
+        val ready = templatePanal.image != null && secondPanel.image != null && resizeWorker == null
+        applyButton.isEnabled = showFields.isEnabled && ready
+        applyReferencesButton.isEnabled = !references.isEmpty && ready && incomingWorker == null
+        dpiButton.isEnabled = ready
+        sizeButton.isEnabled = ready
+        resetImagesButton.isEnabled = originalTemplateImage != null && originalSecondImage != null &&
+            (resizeWorker != null || templatePanal.image !== originalTemplateImage || secondPanel.image !== originalSecondImage)
+        referenceList.isEnabled = resizeWorker == null
+        imageSizes.text = if (ready) {
+            val template = requireNotNull(templatePanal.image)
+            val incoming = requireNotNull(secondPanel.image)
+            "<html>Template: ${template.width} × ${template.height} px<br>" +
+                "Incoming: ${incoming.width} × ${incoming.height} px</html>"
+        } else if (resizeWorker != null) "Resizing images…" else "Open both images to adjust their size."
     }
 
     private fun locateSelectedReference() {
+        if (resizeWorker != null) return
         templateWorker?.cancel(true)
         templateWorker = null
         val index = referenceList.selectedIndex
@@ -234,7 +296,18 @@ class ImageComparisonView(
     }
 
     private fun applyReferences() {
-        val image = originalSecondImage ?: return
+        val image = secondPanel.image ?: return
+        val template = templatePanal.image ?: return
+        val size = a4Size()
+        if (image.width != size.width || image.height != size.height ||
+            template.width != size.width || template.height != size.height) {
+            val selectedReference = referenceList.selectedIndex
+            resizeImages(convertToA4 = true) {
+                referenceList.selectedIndex = selectedReference
+                applyReferences()
+            }
+            return
+        }
         val worker = matchingWorker(
             image, referenceImages,
             isCurrent = { incomingWorker === it },
@@ -300,17 +373,128 @@ class ImageComparisonView(
         }
     }
 
-    private fun bgrCopy(image: BufferedImage) =
-        BufferedImage(image.width, image.height, BufferedImage.TYPE_3BYTE_BGR).apply {
+    private fun bgrCopy(image: BufferedImage, width: Int = image.width, height: Int = image.height) =
+        BufferedImage(width, height, BufferedImage.TYPE_3BYTE_BGR).apply {
             val graphics = createGraphics()
             try {
                 graphics.color = Color.WHITE
                 graphics.fillRect(0, 0, width, height)
-                graphics.drawImage(image, 0, 0, null)
+                graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+                graphics.drawImage(image, 0, 0, width, height, null)
             } finally {
                 graphics.dispose()
             }
         }
+
+    private fun a4Size(): Dimension {
+        val template = requireNotNull(originalTemplateImage)
+        return if (template.width > template.height) Dimension(4677, 3307) else Dimension(3307, 4677)
+    }
+
+    private fun resizeImages(convertToA4: Boolean, onResized: (() -> Unit)? = null) {
+        val template = originalTemplateImage ?: return
+        val incoming = originalSecondImage ?: return
+        val displayed = templatePanal.image ?: return
+        val size = if (convertToA4) a4Size() else Dimension(displayed.width, displayed.height)
+        val width = size.width
+        val height = size.height
+        val crops = originalReferenceImages
+        val displayedCrops = referenceImages
+        clearReferenceMatches()
+        referenceList.clearSelection()
+        templateMatches = List(crops.size) { null }
+        configurationApplied = false
+        refreshFields()
+        val worker = object : SwingWorker<ResizedImages, Unit>() {
+            override fun doInBackground(): ResizedImages {
+                fun resize(image: BufferedImage, w: Int, h: Int) =
+                    if (image.width == w && image.height == h) image else bgrCopy(image, w, h)
+                return ResizedImages(
+                    incoming = resize(incoming, width, height),
+                    template = if (convertToA4) resize(template, width, height) else displayed,
+                    references = if (convertToA4) crops.map {
+                        resize(it, (it.width.toDouble() * width / template.width).roundToInt().coerceAtLeast(1),
+                            (it.height.toDouble() * height / template.height).roundToInt().coerceAtLeast(1))
+                    } else displayedCrops,
+                )
+            }
+
+            override fun done() {
+                if (resizeWorker !== this || isCancelled) return
+                resizeWorker = null
+                try {
+                    val resized = get()
+                    if (convertToA4) {
+                        templatePanal.load(resized.template)
+                        referenceImages = resized.references
+                        updateFieldList()
+                    }
+                    secondPanel.load(resized.incoming)
+                    refreshFields()
+                    refreshReferences()
+                    onStatus(if (convertToA4)
+                        "Both images resampled as A4 at 400 DPI — $width × $height px. Apply reference images again."
+                    else "Incoming image resized to $width × $height px — no rotation or position alignment. Apply reference images again.")
+                    onResized?.invoke()
+                } catch (e: ExecutionException) {
+                    reportResizeFailure(e.cause ?: e)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    reportResizeFailure(e)
+                } finally {
+                    updateControls()
+                }
+            }
+        }
+        resizeWorker = worker
+        updateControls()
+        onStatus("Resizing images…")
+        worker.execute()
+    }
+
+    private fun reportResizeFailure(error: Throwable) {
+        onStatus("Could not resize images: ${error.message}")
+        if (!GraphicsEnvironment.isHeadless()) {
+            JOptionPane.showMessageDialog(this, error.message, "Could not resize images", JOptionPane.ERROR_MESSAGE)
+        }
+    }
+
+    private fun cancelResize() {
+        resizeWorker?.cancel(true)
+        resizeWorker = null
+    }
+
+    private fun displayedFields(): List<Felter> {
+        val original = originalTemplateImage ?: return emptyList()
+        val current = templatePanal.image ?: return emptyList()
+        return configuration?.felter.orEmpty().map { field ->
+            val x = (field.x.toDouble() * current.width / original.width).roundToInt().coerceAtMost(current.width - 1)
+            val y = (field.y.toDouble() * current.height / original.height).roundToInt().coerceAtMost(current.height - 1)
+            field.copy(
+                x = x, y = y,
+                bredde = ((field.x.toLong() + field.bredde).toDouble() * current.width / original.width)
+                    .roundToInt().minus(x).coerceAtLeast(1),
+                hoyde = ((field.y.toLong() + field.hoyde).toDouble() * current.height / original.height)
+                    .roundToInt().minus(y).coerceAtLeast(1),
+            )
+        }
+    }
+
+    private fun updateFieldList() {
+        val selected = fieldList.selectedIndex
+        fields.clear()
+        displayedFields().forEach { fields.addElement(it) }
+        fieldList.selectedIndex = selected
+        updateFieldDetails()
+    }
+
+    private fun updateFieldDetails() {
+        val field = fieldList.selectedValue
+        details.text = if (field == null) "Select a field to inspect its coordinates." else
+            "${field.navn}\n\nx: ${field.x} px\ny: ${field.y} px\n" +
+                "Width: ${field.bredde} px\nHeight: ${field.hoyde} px\n\nID: ${field.id}"
+        details.caretPosition = 0
+    }
 
     private fun clearIncomingMatches() {
         incomingWorker?.cancel(true)
@@ -341,7 +525,7 @@ class ImageComparisonView(
     }
 
     private fun refreshFields() {
-        val visible = if (showFields.isSelected) configuration?.felter.orEmpty() else emptyList()
+        val visible = if (showFields.isSelected) displayedFields() else emptyList()
         templatePanal.showFields(visible, fieldList.selectedIndex)
         secondPanel.showFields(if (configurationApplied) visible else emptyList(), fieldList.selectedIndex)
     }
@@ -351,7 +535,7 @@ class ImageComparisonView(
             x.toLong() + bredde <= image.width && y.toLong() + hoyde <= image.height
 
     private fun createSidebar() = JPanel(BorderLayout(0, 12)).apply {
-        preferredSize = Dimension(340, 700)
+        preferredSize = Dimension(340, 900)
         minimumSize = Dimension(260, 300)
         border = BorderFactory.createEmptyBorder(12, 12, 12, 12)
         add(JPanel(BorderLayout(0, 8)).apply {
@@ -360,6 +544,10 @@ class ImageComparisonView(
             add(JPanel(GridLayout(0, 1, 0, 4)).apply {
                 add(applyButton)
                 add(showFields)
+                add(dpiButton)
+                add(sizeButton)
+                add(resetImagesButton)
+                add(imageSizes)
             }, BorderLayout.SOUTH)
         }, BorderLayout.NORTH)
         add(JPanel(GridLayout(2, 1, 0, 12)).apply {
