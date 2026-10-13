@@ -81,7 +81,6 @@ class Ocr {
     }
 
     public fun parse(img: BufferedImage, field: Field? = null, psmMode: PSM_MODE = PSM_MODE.PSM_AUTO): String? {
-        tesseract.SetPageSegMode(psmMode.value)
         val subImage = field?.let {
             img.getSubimage(it.x, it.y, it.width, it.height)
         } ?: img
@@ -98,6 +97,7 @@ class Ocr {
         val pixels = (grayscale.raster.dataBuffer as DataBufferByte).data
 
         return synchronized(tesseract) {
+            tesseract.SetPageSegMode(psmMode.value)
             tesseract.SetImage(pixels, grayscale.width, grayscale.height, 1, grayscale.width)
 //            tesseract.SetVariable("tessedit_char_whitelist", "0123456789-")
 //            tesseract.SetVariable("tessedit_char_blacklist", "|»")

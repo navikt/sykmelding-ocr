@@ -4,6 +4,7 @@ import org.example.no.nav.tsm.ocr.template.template.Felter
 import org.example.no.nav.tsm.ocr.template.template.Template
 import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
 import no.nav.tsm.sykmelding.ocr.Ocr
+import no.nav.tsm.sykmelding.ocr.PSM_MODE
 import no.nav.tsm.sykmelding.ocr.ReferencesRectangle
 import no.nav.tsm.sykmelding.ocr.SykmeldingOcr
 import org.bytedeco.javacpp.PointerScope
@@ -26,6 +27,9 @@ class ImageComparisonView(
     private val findReferences: (BufferedImage, BufferedImage) -> List<ReferencesRectangle> = { image, reference ->
         val matcher = SykmeldingOcr(Ocr())
         PointerScope().use { matcher.findReferences(image, reference) }
+    },
+    private val recognizeText: (BufferedImage, PSM_MODE) -> String? = { image, mode ->
+        Ocr().parse(image, psmMode = mode)
     },
     private val onStatus: (String) -> Unit = {},
 ) : JPanel(BorderLayout()) {
@@ -51,6 +55,14 @@ class ImageComparisonView(
     private val references = DefaultListModel<File>()
     private val referenceList = JList(references)
     private val referenceDetails = textArea("Select a reference image to locate it on the template.")
+    private val pageNumberDetails = textArea("Select a matched reference, then read its page number.")
+    private var pageNumberWorker: SwingWorker<String, Unit>? = null
+    private var pageNumberReadStarted = false
+    private val readPageNumberButton = JButton("Read page number").apply {
+        toolTipText = "Read 'side x av y' from the selected incoming reference using block OCR."
+        isEnabled = false
+        addActionListener { readPageNumber() }
+    }
     private val imageSizes = JLabel("Open both images to adjust their size.")
     private val dpiButton = JButton("Convert both to A4 at 400 DPI").apply {
         toolTipText = "Resample full A4 pages, using the template orientation. Ignores embedded DPI."
@@ -127,8 +139,10 @@ class ImageComparisonView(
         }
         referenceList.addListSelectionListener {
             if (!it.valueIsAdjusting) {
+                clearPageNumber()
                 refreshReferences()
                 locateSelectedReference()
+                updateControls()
             }
         }
         val images = JPanel(GridLayout(1, 2, 8, 0)).apply {
@@ -268,6 +282,8 @@ class ImageComparisonView(
         val ready = templatePanal.image != null && secondPanel.image != null && resizeWorker == null
         applyButton.isEnabled = showFields.isEnabled && ready && incomingWorker == null && templateWorker == null
         applyReferencesButton.isEnabled = !references.isEmpty && ready && incomingWorker == null
+        readPageNumberButton.isEnabled = ready && incomingWorker == null && pageNumberWorker == null &&
+            incomingMatches.getOrNull(referenceList.selectedIndex) != null
         dpiButton.isEnabled = ready
         sizeButton.isEnabled = ready
         resetImagesButton.isEnabled = originalTemplateImage != null && originalSecondImage != null &&
@@ -279,6 +295,63 @@ class ImageComparisonView(
             "<html>Template: ${template.width} × ${template.height} px<br>" +
                 "Incoming: ${incoming.width} × ${incoming.height} px</html>"
         } else if (resizeWorker != null) "Resizing images…" else "Open both images to adjust their size."
+    }
+
+    private fun readPageNumber() {
+        val image = secondPanel.image ?: return
+        val match = incomingMatches.getOrNull(referenceList.selectedIndex) ?: return
+        val worker = object : SwingWorker<String, Unit>() {
+            override fun doInBackground(): String {
+                val crop = bgrCopy(image.getSubimage(match.x, match.y, match.width, match.height))
+                return checkNotNull(recognizeText(crop, PSM_MODE.PSM_SINGLE_BLOCK)) { "OCR returned no result." }
+            }
+
+            override fun done() {
+                if (pageNumberWorker !== this || isCancelled) return
+                pageNumberWorker = null
+                try {
+                    val text = get()
+                    val page = try {
+                        parsePageNumber(text)
+                    } catch (e: IllegalArgumentException) {
+                        pageNumberDetails.text = "${e.message}\n\nRecognized text:\n$text"
+                        onStatus("Page number not detected: ${e.message}")
+                        return
+                    }
+                    val result = "Detected page: ${page.page} of ${page.total}"
+                    pageNumberDetails.text = "$result\n\nRecognized text:\n$text"
+                    onStatus(result)
+                } catch (e: ExecutionException) {
+                    reportPageNumberFailure(e.cause ?: e)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    reportPageNumberFailure(e)
+                } finally {
+                    pageNumberDetails.caretPosition = 0
+                    updateControls()
+                }
+            }
+        }
+        pageNumberWorker = worker
+        pageNumberReadStarted = true
+        pageNumberDetails.text = "Reading page number…"
+        onStatus("Reading page number from the selected incoming reference…")
+        updateControls()
+        worker.execute()
+    }
+
+    private fun reportPageNumberFailure(error: Throwable) {
+        pageNumberDetails.text = "Could not read page number: ${error.message}"
+        onStatus(pageNumberDetails.text)
+    }
+
+    private fun clearPageNumber() {
+        pageNumberWorker?.cancel(true)
+        pageNumberWorker = null
+        pageNumberDetails.text = "Select a matched reference, then read its page number."
+        pageNumberDetails.caretPosition = 0
+        if (pageNumberReadStarted) onStatus("Page number cleared — read the selected incoming reference again.")
+        pageNumberReadStarted = false
     }
 
     private fun locateSelectedReference() {
@@ -563,6 +636,7 @@ class ImageComparisonView(
     }
 
     private fun clearIncomingMatches() {
+        clearPageNumber()
         incomingWorker?.cancel(true)
         incomingWorker = null
         incomingMatches = emptyList()
@@ -613,7 +687,7 @@ class ImageComparisonView(
             x.toLong() + bredde <= image.width && y.toLong() + hoyde <= image.height
 
     private fun createSidebar() = JPanel(BorderLayout(0, 12)).apply {
-        preferredSize = Dimension(340, 900)
+        preferredSize = Dimension(340, 1100)
         minimumSize = Dimension(260, 300)
         border = BorderFactory.createEmptyBorder(12, 12, 12, 12)
         add(JPanel(BorderLayout(0, 8)).apply {
@@ -628,20 +702,29 @@ class ImageComparisonView(
                 add(imageSizes)
             }, BorderLayout.SOUTH)
         }, BorderLayout.NORTH)
-        add(JPanel(GridLayout(2, 1, 0, 12)).apply {
+        add(JPanel(BorderLayout(0, 12)).apply {
             add(JPanel(BorderLayout(0, 8)).apply {
+                preferredSize = Dimension(300, 240)
                 add(JLabel("Fields").apply { labelFor = fieldList }, BorderLayout.NORTH)
                 add(JScrollPane(fieldList), BorderLayout.CENTER)
                 add(JScrollPane(details).apply { preferredSize = Dimension(300, 120) }, BorderLayout.SOUTH)
-            })
+            }, BorderLayout.NORTH)
             add(JPanel(BorderLayout(0, 8)).apply {
                 add(JLabel("Reference images").apply { labelFor = referenceList }, BorderLayout.NORTH)
                 add(JScrollPane(referenceList), BorderLayout.CENTER)
                 add(JPanel(BorderLayout(0, 8)).apply {
                     add(JScrollPane(referenceDetails).apply { preferredSize = Dimension(300, 120) }, BorderLayout.CENTER)
-                    add(applyReferencesButton, BorderLayout.SOUTH)
+                    add(JPanel(BorderLayout(0, 8)).apply {
+                        add(JPanel(GridLayout(0, 1, 0, 4)).apply {
+                            add(applyReferencesButton)
+                            add(readPageNumberButton)
+                        }, BorderLayout.NORTH)
+                        add(JScrollPane(pageNumberDetails).apply {
+                            preferredSize = Dimension(300, 130)
+                        }, BorderLayout.CENTER)
+                    }, BorderLayout.SOUTH)
                 }, BorderLayout.SOUTH)
-            })
+            }, BorderLayout.CENTER)
         }, BorderLayout.CENTER)
     }
 
