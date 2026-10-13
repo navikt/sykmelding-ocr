@@ -56,12 +56,18 @@ class ImageComparisonView(
     private val referenceList = JList(references)
     private val referenceDetails = textArea("Select a reference image to locate it on the template.")
     private val pageNumberDetails = textArea("Select a matched reference, then read its page number.")
-    private var pageNumberWorker: SwingWorker<String, Unit>? = null
-    private var pageNumberReadStarted = false
+    private val sykmeldingDetails = textArea("Select the matched top-left letter reference, then detect sykmelding.")
+    private var referenceOcrWorker: SwingWorker<String, Unit>? = null
+    private var referenceOcrReadStarted = false
     private val readPageNumberButton = JButton("Read page number").apply {
         toolTipText = "Read 'side x av y' from the selected incoming reference using block OCR."
         isEnabled = false
         addActionListener { readPageNumber() }
+    }
+    private val detectSykmeldingButton = JButton("Detect sykmelding").apply {
+        toolTipText = "Check the selected incoming top-left reference for A; retry blank block OCR with character OCR."
+        isEnabled = false
+        addActionListener { detectSykmelding() }
     }
     private val imageSizes = JLabel("Open both images to adjust their size.")
     private val dpiButton = JButton("Convert both to A4 at 400 DPI").apply {
@@ -139,7 +145,7 @@ class ImageComparisonView(
         }
         referenceList.addListSelectionListener {
             if (!it.valueIsAdjusting) {
-                clearPageNumber()
+                clearReferenceOcr()
                 refreshReferences()
                 locateSelectedReference()
                 updateControls()
@@ -282,8 +288,10 @@ class ImageComparisonView(
         val ready = templatePanal.image != null && secondPanel.image != null && resizeWorker == null
         applyButton.isEnabled = showFields.isEnabled && ready && incomingWorker == null && templateWorker == null
         applyReferencesButton.isEnabled = !references.isEmpty && ready && incomingWorker == null
-        readPageNumberButton.isEnabled = ready && incomingWorker == null && pageNumberWorker == null &&
+        val canReadReference = ready && incomingWorker == null && referenceOcrWorker == null &&
             incomingMatches.getOrNull(referenceList.selectedIndex) != null
+        readPageNumberButton.isEnabled = canReadReference
+        detectSykmeldingButton.isEnabled = canReadReference
         dpiButton.isEnabled = ready
         sizeButton.isEnabled = ready
         resetImagesButton.isEnabled = originalTemplateImage != null && originalSecondImage != null &&
@@ -297,61 +305,84 @@ class ImageComparisonView(
         } else if (resizeWorker != null) "Resizing images…" else "Open both images to adjust their size."
     }
 
-    private fun readPageNumber() {
+    private fun readPageNumber() = readSelectedReference(
+        PSM_MODE.PSM_SINGLE_BLOCK, pageNumberDetails, "Reading page number", "Could not read page number",
+    ) { text ->
+        val page = parsePageNumber(text)
+        "Detected page: ${page.page} of ${page.total}"
+    }
+
+    private fun detectSykmelding() = readSelectedReference(
+        PSM_MODE.PSM_SINGLE_BLOCK, sykmeldingDetails, "Detecting sykmelding", "Could not detect sykmelding",
+        fallbackMode = PSM_MODE.PSM_SINGLE_CHAR,
+    ) { text ->
+        if (isSykmeldingMarker(text)) "Sykmelding detected: A."
+        else "Not a sykmelding: detected ${text.trim()} (expected A)."
+    }
+
+    private fun readSelectedReference(
+        mode: PSM_MODE,
+        resultDetails: JTextArea,
+        progress: String,
+        failure: String,
+        fallbackMode: PSM_MODE? = null,
+        interpret: (String) -> String,
+    ) {
         val image = secondPanel.image ?: return
         val match = incomingMatches.getOrNull(referenceList.selectedIndex) ?: return
         val worker = object : SwingWorker<String, Unit>() {
             override fun doInBackground(): String {
                 val crop = bgrCopy(image.getSubimage(match.x, match.y, match.width, match.height))
-                return checkNotNull(recognizeText(crop, PSM_MODE.PSM_SINGLE_BLOCK)) { "OCR returned no result." }
+                val text = checkNotNull(recognizeText(crop, mode)) { "OCR returned no result." }
+                return if (text.isBlank() && fallbackMode != null)
+                    checkNotNull(recognizeText(crop, fallbackMode)) { "OCR returned no result." }
+                else text
             }
 
             override fun done() {
-                if (pageNumberWorker !== this || isCancelled) return
-                pageNumberWorker = null
+                if (referenceOcrWorker !== this || isCancelled) return
+                referenceOcrWorker = null
                 try {
                     val text = get()
-                    val page = try {
-                        parsePageNumber(text)
+                    val result = try {
+                        interpret(text)
                     } catch (e: IllegalArgumentException) {
-                        pageNumberDetails.text = "${e.message}\n\nRecognized text:\n$text"
-                        onStatus("Page number not detected: ${e.message}")
+                        resultDetails.text = "${e.message}\n\nRecognized text:\n$text"
+                        onStatus("$failure: ${e.message}")
                         return
                     }
-                    val result = "Detected page: ${page.page} of ${page.total}"
-                    pageNumberDetails.text = "$result\n\nRecognized text:\n$text"
+                    resultDetails.text = "$result\n\nRecognized text:\n$text"
                     onStatus(result)
                 } catch (e: ExecutionException) {
-                    reportPageNumberFailure(e.cause ?: e)
+                    resultDetails.text = "$failure: ${(e.cause ?: e).message}"
+                    onStatus(resultDetails.text)
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
-                    reportPageNumberFailure(e)
+                    resultDetails.text = "$failure: ${e.message}"
+                    onStatus(resultDetails.text)
                 } finally {
-                    pageNumberDetails.caretPosition = 0
+                    resultDetails.caretPosition = 0
                     updateControls()
                 }
             }
         }
-        pageNumberWorker = worker
-        pageNumberReadStarted = true
-        pageNumberDetails.text = "Reading page number…"
-        onStatus("Reading page number from the selected incoming reference…")
+        referenceOcrWorker = worker
+        referenceOcrReadStarted = true
+        resultDetails.text = "$progress…"
+        onStatus("$progress from the selected incoming reference…")
         updateControls()
         worker.execute()
     }
 
-    private fun reportPageNumberFailure(error: Throwable) {
-        pageNumberDetails.text = "Could not read page number: ${error.message}"
-        onStatus(pageNumberDetails.text)
-    }
-
-    private fun clearPageNumber() {
-        pageNumberWorker?.cancel(true)
-        pageNumberWorker = null
+    private fun clearReferenceOcr() {
+        referenceOcrWorker?.cancel(true)
+        referenceOcrWorker = null
         pageNumberDetails.text = "Select a matched reference, then read its page number."
         pageNumberDetails.caretPosition = 0
-        if (pageNumberReadStarted) onStatus("Page number cleared — read the selected incoming reference again.")
-        pageNumberReadStarted = false
+        sykmeldingDetails.text = "Select the matched top-left letter reference, then detect sykmelding."
+        sykmeldingDetails.caretPosition = 0
+        if (referenceOcrReadStarted) onStatus("OCR results cleared — read the selected incoming reference again.")
+        referenceOcrReadStarted = false
     }
 
     private fun locateSelectedReference() {
@@ -636,7 +667,7 @@ class ImageComparisonView(
     }
 
     private fun clearIncomingMatches() {
-        clearPageNumber()
+        clearReferenceOcr()
         incomingWorker?.cancel(true)
         incomingWorker = null
         incomingMatches = emptyList()
@@ -687,7 +718,7 @@ class ImageComparisonView(
             x.toLong() + bredde <= image.width && y.toLong() + hoyde <= image.height
 
     private fun createSidebar() = JPanel(BorderLayout(0, 12)).apply {
-        preferredSize = Dimension(340, 1100)
+        preferredSize = Dimension(340, 1250)
         minimumSize = Dimension(260, 300)
         border = BorderFactory.createEmptyBorder(12, 12, 12, 12)
         add(JPanel(BorderLayout(0, 8)).apply {
@@ -718,10 +749,14 @@ class ImageComparisonView(
                         add(JPanel(GridLayout(0, 1, 0, 4)).apply {
                             add(applyReferencesButton)
                             add(readPageNumberButton)
+                            add(detectSykmeldingButton)
                         }, BorderLayout.NORTH)
                         add(JScrollPane(pageNumberDetails).apply {
                             preferredSize = Dimension(300, 130)
                         }, BorderLayout.CENTER)
+                        add(JScrollPane(sykmeldingDetails).apply {
+                            preferredSize = Dimension(300, 110)
+                        }, BorderLayout.SOUTH)
                     }, BorderLayout.SOUTH)
                 }, BorderLayout.SOUTH)
             }, BorderLayout.CENTER)
