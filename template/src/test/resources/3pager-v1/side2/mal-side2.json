@@ -1,0 +1,161 @@
+{
+  "navn" : "3pager-side2",
+  "referansepunkter" : [ "referansepunkt-1.png", "referansepunkt-2.png", "referansepunkt-3.png", "referansepunkt-4.png" ],
+  "beskrivelse" : "",
+  "felter" : [ {
+    "x" : 507,
+    "y" : 184,
+    "bredde" : 99,
+    "hoyde" : 30,
+    "navn" : "4.1.1",
+    "id" : "c7919bd1-85f8-483f-82ab-61b7b69056cf"
+  }, {
+    "x" : 610,
+    "y" : 185,
+    "bredde" : 96,
+    "hoyde" : 26,
+    "navn" : "4.1.2",
+    "id" : "85f3cd1f-ec09-4d0c-87dc-31152193c7fa"
+  }, {
+    "x" : 508,
+    "y" : 311,
+    "bredde" : 97,
+    "hoyde" : 26,
+    "navn" : "4.2.1",
+    "id" : "68c6479f-4b1b-4f45-ab46-1668a1e905dc"
+  }, {
+    "x" : 610,
+    "y" : 311,
+    "bredde" : 97,
+    "hoyde" : 26,
+    "navn" : "4.2.2",
+    "id" : "ce27c224-8f69-44f7-9505-c155072a64be"
+  }, {
+    "x" : 508,
+    "y" : 411,
+    "bredde" : 97,
+    "hoyde" : 26,
+    "navn" : "4.3.1",
+    "id" : "b00bd8ab-fc76-4dc9-89df-23a994c908c9"
+  }, {
+    "x" : 608,
+    "y" : 411,
+    "bredde" : 99,
+    "hoyde" : 28,
+    "navn" : "4.3.2",
+    "id" : "067941da-895a-44b7-bcb5-a8d5c979de33"
+  }, {
+    "x" : 507,
+    "y" : 524,
+    "bredde" : 98,
+    "hoyde" : 27,
+    "navn" : "4.4.1",
+    "id" : "919421ca-40e4-4535-883f-c2ef0568900e"
+  }, {
+    "x" : 610,
+    "y" : 524,
+    "bredde" : 99,
+    "hoyde" : 26,
+    "navn" : "4.4.2",
+    "id" : "7ceeae5a-080e-4d14-9f29-493f85fce2d0"
+  }, {
+    "x" : 508,
+    "y" : 605,
+    "bredde" : 98,
+    "hoyde" : 26,
+    "navn" : "4.5.1",
+    "id" : "bd0391c8-5cf5-4c81-905a-941df9c727b5"
+  }, {
+    "x" : 610,
+    "y" : 604,
+    "bredde" : 96,
+    "hoyde" : 26,
+    "navn" : "4.5.2",
+    "id" : "fc5f334c-d237-477f-8bc2-b5665ab7c1ad"
+  }, {
+    "x" : 66,
+    "y" : 236,
+    "bredde" : 639,
+    "hoyde" : 53,
+    "navn" : "4.1.3",
+    "id" : "730757f6-29a6-4540-9b58-43caa7688bee"
+  }, {
+    "x" : 65,
+    "y" : 360,
+    "bredde" : 267,
+    "hoyde" : 28,
+    "navn" : "4.2.3",
+    "id" : "a8008322-e643-4d9f-bdd9-9f29a8b9cb68"
+  }, {
+    "x" : 396,
+    "y" : 349,
+    "bredde" : 17,
+    "hoyde" : 17,
+    "navn" : "4.2.4",
+    "id" : "40f81273-8eb9-4710-a2d3-2e48f21b4c82"
+  }, {
+    "x" : 69,
+    "y" : 449,
+    "bredde" : 19,
+    "hoyde" : 15,
+    "navn" : "4.3.3",
+    "id" : "d3f7c096-587b-4ae4-95ce-991717871051"
+  }, {
+    "x" : 69,
+    "y" : 480,
+    "bredde" : 19,
+    "hoyde" : 14,
+    "navn" : "4.3.4",
+    "id" : "e6263206-71a4-4e03-86ea-853bb7ec0235"
+  }, {
+    "x" : 69,
+    "y" : 671,
+    "bredde" : 19,
+    "hoyde" : 15,
+    "navn" : "5.1",
+    "id" : "cec9f1bb-a0fb-4c71-9e61-052543859643"
+  }, {
+    "x" : 67,
+    "y" : 715,
+    "bredde" : 640,
+    "hoyde" : 49,
+    "navn" : "5.1.1",
+    "id" : "825ea43c-b735-43ac-b3a9-e154a5332531"
+  }, {
+    "x" : 68,
+    "y" : 816,
+    "bredde" : 639,
+    "hoyde" : 43,
+    "navn" : "7.1",
+    "id" : "8dca10f8-9f3f-4faa-8216-fbebb8414bdf"
+  }, {
+    "x" : 66,
+    "y" : 884,
+    "bredde" : 641,
+    "hoyde" : 60,
+    "navn" : "7.2",
+    "id" : "e1f67184-0116-4030-8de6-b848a69d3f43"
+  }, {
+    "x" : 11,
+    "y" : 91,
+    "bredde" : 245,
+    "hoyde" : 25,
+    "navn" : "etternavn",
+    "id" : "009fd79e-57f5-4458-8df6-a5f152aa3026"
+  }, {
+    "x" : 261,
+    "y" : 93,
+    "bredde" : 244,
+    "hoyde" : 24,
+    "navn" : "fornavn",
+    "id" : "c1380649-01cf-4ea0-8a0e-8d836c996be3"
+  }, {
+    "x" : 510,
+    "y" : 93,
+    "bredde" : 198,
+    "hoyde" : 24,
+    "navn" : "fødselsnummer",
+    "id" : "ab8790f5-6425-49d7-ba49-e4b897665e8b"
+  } ],
+  "templateBilde" : "../../3pager-p2.png"
+}
