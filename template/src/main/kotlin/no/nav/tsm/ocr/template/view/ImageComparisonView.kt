@@ -52,12 +52,21 @@ class ImageComparisonView(
     private val fieldList = JList(fields)
     private val summary = textArea("No configuration loaded.")
     private val details = textArea("Select a field to inspect its coordinates.")
+    private val fieldOcrDetails = textArea("Apply configuration and select a field to read its value.")
+    private var fieldOcrReadStarted = false
+    private val readFieldButton = JButton("Read field").apply {
+        toolTipText = "Read the selected reference-adjusted incoming field using block OCR."
+        isEnabled = false
+        addActionListener { readField() }
+    }
     private val references = DefaultListModel<File>()
     private val referenceList = JList(references)
     private val referenceDetails = textArea("Select a reference image to locate it on the template.")
     private val pageNumberDetails = textArea("Select a matched reference, then read its page number.")
     private val sykmeldingDetails = textArea("Select the matched top-left letter reference, then detect sykmelding.")
-    private var referenceOcrWorker: SwingWorker<String, Unit>? = null
+    private enum class OcrTarget { REFERENCE, FIELD }
+    private var ocrWorker: SwingWorker<String, Unit>? = null
+    private var ocrTarget: OcrTarget? = null
     private var referenceOcrReadStarted = false
     private val readPageNumberButton = JButton("Read page number").apply {
         toolTipText = "Read 'side x av y' from the selected incoming reference using block OCR."
@@ -131,8 +140,10 @@ class ImageComparisonView(
         }
         fieldList.addListSelectionListener {
             if (!it.valueIsAdjusting) {
+                clearFieldOcr()
                 updateFieldDetails()
                 refreshFields()
+                updateControls()
             }
         }
         referenceList.selectionMode = ListSelectionModel.SINGLE_SELECTION
@@ -266,14 +277,17 @@ class ImageComparisonView(
         val incoming = secondPanel.image ?: return
         val currentAlignment = alignment
         if (currentAlignment == null || incomingWorker != null || resizeWorker != null) {
+            clearFieldOcr()
             configurationApplied = false
             refreshFields()
+            updateControls()
             onStatus("Cannot apply configuration: $alignmentError No incoming field boxes displayed.")
             return
         }
         configurationApplied = true
         showFields.isSelected = true
         refreshFields()
+        updateControls()
         val outside = displayedFields().count { field ->
             currentAlignment.transform.region(field).corners.any {
                 it.x < 0 || it.y < 0 || it.x > incoming.width || it.y > incoming.height
@@ -288,10 +302,12 @@ class ImageComparisonView(
         val ready = templatePanal.image != null && secondPanel.image != null && resizeWorker == null
         applyButton.isEnabled = showFields.isEnabled && ready && incomingWorker == null && templateWorker == null
         applyReferencesButton.isEnabled = !references.isEmpty && ready && incomingWorker == null
-        val canReadReference = ready && incomingWorker == null && referenceOcrWorker == null &&
+        val canReadReference = ready && incomingWorker == null && ocrWorker == null &&
             incomingMatches.getOrNull(referenceList.selectedIndex) != null
         readPageNumberButton.isEnabled = canReadReference
         detectSykmeldingButton.isEnabled = canReadReference
+        readFieldButton.isEnabled = ready && incomingWorker == null && templateWorker == null && ocrWorker == null &&
+            configurationApplied && alignment != null && fieldList.selectedValue != null
         dpiButton.isEnabled = ready
         sizeButton.isEnabled = ready
         resetImagesButton.isEnabled = originalTemplateImage != null && originalSecondImage != null &&
@@ -303,6 +319,20 @@ class ImageComparisonView(
             "<html>Template: ${template.width} × ${template.height} px<br>" +
                 "Incoming: ${incoming.width} × ${incoming.height} px</html>"
         } else if (resizeWorker != null) "Resizing images…" else "Open both images to adjust their size."
+    }
+
+    private fun readField() {
+        val image = secondPanel.image ?: return
+        val field = fieldList.selectedValue ?: return
+        val transform = alignment?.transform ?: return
+        if (!configurationApplied) return
+        startOcr(
+            OcrTarget.FIELD, { cropAlignedField(image, field, transform) },
+            PSM_MODE.PSM_SINGLE_BLOCK, fieldOcrDetails, "Reading field '${field.navn}'", "Could not read field",
+        ) { text ->
+            if (text.isBlank()) "No text found in field '${field.navn}' (${field.id})."
+            else "Field read: ${field.navn} (${field.id})"
+        }
     }
 
     private fun readPageNumber() = readSelectedReference(
@@ -330,9 +360,25 @@ class ImageComparisonView(
     ) {
         val image = secondPanel.image ?: return
         val match = incomingMatches.getOrNull(referenceList.selectedIndex) ?: return
+        startOcr(
+            OcrTarget.REFERENCE, { bgrCopy(image.getSubimage(match.x, match.y, match.width, match.height)) },
+            mode, resultDetails, progress, failure, fallbackMode, interpret,
+        )
+    }
+
+    private fun startOcr(
+        target: OcrTarget,
+        cropImage: () -> BufferedImage,
+        mode: PSM_MODE,
+        resultDetails: JTextArea,
+        progress: String,
+        failure: String,
+        fallbackMode: PSM_MODE? = null,
+        interpret: (String) -> String,
+    ) {
         val worker = object : SwingWorker<String, Unit>() {
             override fun doInBackground(): String {
-                val crop = bgrCopy(image.getSubimage(match.x, match.y, match.width, match.height))
+                val crop = cropImage()
                 val text = checkNotNull(recognizeText(crop, mode)) { "OCR returned no result." }
                 return if (text.isBlank() && fallbackMode != null)
                     checkNotNull(recognizeText(crop, fallbackMode)) { "OCR returned no result." }
@@ -340,8 +386,9 @@ class ImageComparisonView(
             }
 
             override fun done() {
-                if (referenceOcrWorker !== this || isCancelled) return
-                referenceOcrWorker = null
+                if (ocrWorker !== this || isCancelled) return
+                ocrWorker = null
+                ocrTarget = null
                 try {
                     val text = get()
                     val result = try {
@@ -366,23 +413,38 @@ class ImageComparisonView(
                 }
             }
         }
-        referenceOcrWorker = worker
-        referenceOcrReadStarted = true
+        ocrWorker = worker
+        ocrTarget = target
+        if (target == OcrTarget.REFERENCE) referenceOcrReadStarted = true else fieldOcrReadStarted = true
         resultDetails.text = "$progress…"
-        onStatus("$progress from the selected incoming reference…")
+        onStatus("$progress from the incoming document…")
         updateControls()
         worker.execute()
     }
 
     private fun clearReferenceOcr() {
-        referenceOcrWorker?.cancel(true)
-        referenceOcrWorker = null
+        cancelOcr(OcrTarget.REFERENCE)
         pageNumberDetails.text = "Select a matched reference, then read its page number."
         pageNumberDetails.caretPosition = 0
         sykmeldingDetails.text = "Select the matched top-left letter reference, then detect sykmelding."
         sykmeldingDetails.caretPosition = 0
         if (referenceOcrReadStarted) onStatus("OCR results cleared — read the selected incoming reference again.")
         referenceOcrReadStarted = false
+    }
+
+    private fun clearFieldOcr() {
+        cancelOcr(OcrTarget.FIELD)
+        fieldOcrDetails.text = "Apply configuration and select a field to read its value."
+        fieldOcrDetails.caretPosition = 0
+        if (fieldOcrReadStarted) onStatus("Field OCR result cleared — read the selected incoming field again.")
+        fieldOcrReadStarted = false
+    }
+
+    private fun cancelOcr(target: OcrTarget) {
+        if (ocrTarget != target) return
+        ocrWorker?.cancel(true)
+        ocrWorker = null
+        ocrTarget = null
     }
 
     private fun locateSelectedReference() {
@@ -676,6 +738,7 @@ class ImageComparisonView(
     }
 
     private fun clearAlignment() {
+        clearFieldOcr()
         alignment = null
         alignmentError = "Apply reference images first; at least two separated corresponding pairs are required."
         configurationApplied = false
@@ -718,7 +781,7 @@ class ImageComparisonView(
             x.toLong() + bredde <= image.width && y.toLong() + hoyde <= image.height
 
     private fun createSidebar() = JPanel(BorderLayout(0, 12)).apply {
-        preferredSize = Dimension(340, 1250)
+        preferredSize = Dimension(340, 1410)
         minimumSize = Dimension(260, 300)
         border = BorderFactory.createEmptyBorder(12, 12, 12, 12)
         add(JPanel(BorderLayout(0, 8)).apply {
@@ -735,10 +798,14 @@ class ImageComparisonView(
         }, BorderLayout.NORTH)
         add(JPanel(BorderLayout(0, 12)).apply {
             add(JPanel(BorderLayout(0, 8)).apply {
-                preferredSize = Dimension(300, 240)
+                preferredSize = Dimension(300, 400)
                 add(JLabel("Fields").apply { labelFor = fieldList }, BorderLayout.NORTH)
                 add(JScrollPane(fieldList), BorderLayout.CENTER)
-                add(JScrollPane(details).apply { preferredSize = Dimension(300, 120) }, BorderLayout.SOUTH)
+                add(JPanel(BorderLayout(0, 8)).apply {
+                    add(JScrollPane(details).apply { preferredSize = Dimension(300, 120) }, BorderLayout.NORTH)
+                    add(readFieldButton, BorderLayout.CENTER)
+                    add(JScrollPane(fieldOcrDetails).apply { preferredSize = Dimension(300, 130) }, BorderLayout.SOUTH)
+                }, BorderLayout.SOUTH)
             }, BorderLayout.NORTH)
             add(JPanel(BorderLayout(0, 8)).apply {
                 add(JLabel("Reference images").apply { labelFor = referenceList }, BorderLayout.NORTH)
