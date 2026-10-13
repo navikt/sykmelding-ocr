@@ -34,6 +34,8 @@ class ImageComparisonView(
     private val panels = listOf(templatePanal, secondPanel)
     private var configuration: Template? = null
     private var configurationApplied = false
+    private var alignment: ReferenceAlignment? = null
+    private var alignmentError = "Apply reference images first."
     private var originalTemplateImage: BufferedImage? = null
     private var originalReferenceImages = emptyList<BufferedImage>()
     private var resizeWorker: SwingWorker<ResizedImages, Unit>? = null
@@ -78,13 +80,18 @@ class ImageComparisonView(
     private var templateMatches = emptyList<ReferencesRectangle?>()
     private var incomingMatches = emptyList<ReferencesRectangle?>()
     private var templateWorker: SwingWorker<List<ReferencesRectangle?>, Unit>? = null
-    private var incomingWorker: SwingWorker<List<ReferencesRectangle?>, Unit>? = null
+    private data class PairedMatches(
+        val template: List<ReferencesRectangle?>,
+        val incoming: List<ReferencesRectangle?>,
+    )
+    private var incomingWorker: SwingWorker<PairedMatches, Unit>? = null
     private val applyReferencesButton = JButton("Apply reference images").apply {
         toolTipText = "Normalize both full A4 pages to 400 DPI, then find the reference images."
         isEnabled = false
         addActionListener { applyReferences() }
     }
     private val applyButton = JButton("Apply configuration").apply {
+        toolTipText = "Uses affine alignment for three or more non-collinear reference pairs; otherwise uniform scale and rotation."
         isEnabled = false
         addActionListener { applyConfiguration() }
     }
@@ -127,7 +134,7 @@ class ImageComparisonView(
         val images = JPanel(GridLayout(1, 2, 8, 0)).apply {
             minimumSize = Dimension(400, 300)
             add(labeledPanel("Template — reference", templatePanal))
-            add(labeledPanel("Incoming document — not aligned", secondPanel))
+            add(labeledPanel("Incoming document — reference-adjusted fields, unchanged image", secondPanel))
         }
         val sidebar = JScrollPane(createSidebar()).apply {
             preferredSize = Dimension(360, 700)
@@ -188,7 +195,7 @@ class ImageComparisonView(
             fields.isEmpty && references.isEmpty -> "Configuration loaded — it contains no fields or reference images."
             originalSecondImage == null -> "Configuration loaded — open an incoming document to apply it."
             fields.isEmpty -> "Configuration loaded — select a reference image or click Apply reference images. Document not aligned."
-            else -> "Configuration loaded — click Apply configuration. Document not aligned."
+            else -> "Configuration loaded — apply reference images before applying configuration."
         })
         return template
     }
@@ -219,7 +226,7 @@ class ImageComparisonView(
         updateControls()
         refreshFields()
         onStatus(when {
-            applyButton.isEnabled -> "Incoming document loaded — click Apply configuration. Document not aligned."
+            applyButton.isEnabled -> "Incoming document loaded — apply reference images before applying configuration."
             applyReferencesButton.isEnabled -> "Incoming document loaded — click Apply reference images. Document not aligned."
             else -> "Incoming document loaded — load a configuration with fields or reference images to apply it."
         })
@@ -237,24 +244,29 @@ class ImageComparisonView(
     private fun applyConfiguration() {
         if (configuration == null) return
         val incoming = secondPanel.image ?: return
+        val currentAlignment = alignment
+        if (currentAlignment == null || incomingWorker != null || resizeWorker != null) {
+            configurationApplied = false
+            refreshFields()
+            onStatus("Cannot apply configuration: $alignmentError No incoming field boxes displayed.")
+            return
+        }
         configurationApplied = true
         showFields.isSelected = true
         refreshFields()
-        val outside = displayedFields().count { !it.fitsInside(incoming) }
-        val reference = requireNotNull(templatePanal.image)
-        val warning = when {
-            outside > 0 -> " $outside field(s) extend beyond the incoming image."
-            incoming.width != reference.width || incoming.height != reference.height ->
-                " Image dimensions differ; coordinates have not been rescaled."
-            else -> ""
+        val outside = displayedFields().count { field ->
+            currentAlignment.transform.region(field).corners.any {
+                it.x < 0 || it.y < 0 || it.x > incoming.width || it.y > incoming.height
+            }
         }
-        onStatus("Configuration applied — document not aligned.$warning")
+        val warning = if (outside > 0) " $outside field(s) extend beyond the incoming image." else ""
+        onStatus("Configuration applied — reference-adjusted field polygons; image unchanged.$warning")
     }
 
     private fun updateControls() {
         showFields.isEnabled = configuration != null && !fields.isEmpty
         val ready = templatePanal.image != null && secondPanel.image != null && resizeWorker == null
-        applyButton.isEnabled = showFields.isEnabled && ready
+        applyButton.isEnabled = showFields.isEnabled && ready && incomingWorker == null && templateWorker == null
         applyReferencesButton.isEnabled = !references.isEmpty && ready && incomingWorker == null
         dpiButton.isEnabled = ready
         sizeButton.isEnabled = ready
@@ -270,28 +282,34 @@ class ImageComparisonView(
     }
 
     private fun locateSelectedReference() {
-        if (resizeWorker != null) return
+        if (resizeWorker != null || incomingWorker != null) return
         templateWorker?.cancel(true)
         templateWorker = null
+        updateControls()
         val index = referenceList.selectedIndex
         if (index < 0 || templateMatches.getOrNull(index) != null) return
         val image = templatePanal.image ?: return
         val reference = referenceImages[index]
+        clearAlignment()
         referenceDetails.text = "${references[index].name}\n\nFinding template match…"
         val worker = matchingWorker(
             image, listOf(reference),
             isCurrent = { templateWorker === it },
             completed = { matches ->
                 templateWorker = null
-                templateMatches = templateMatches.toMutableList().also { it[index] = matches.single() }
+                templateMatches = MutableList(referenceImages.size) { templateMatches.getOrNull(it) }
+                    .also { it[index] = matches.single() }
                 refreshReferences()
+                updateControls()
             },
             failed = {
                 templateWorker = null
                 referenceDetails.text = "${references[index].name}\n\nTemplate matching failed."
+                updateControls()
             },
         )
         templateWorker = worker
+        updateControls()
         worker.execute()
     }
 
@@ -303,29 +321,66 @@ class ImageComparisonView(
             template.width != size.width || template.height != size.height) {
             val selectedReference = referenceList.selectedIndex
             resizeImages(convertToA4 = true) {
-                referenceList.selectedIndex = selectedReference
                 applyReferences()
+                referenceList.selectedIndex = selectedReference
             }
             return
         }
-        val worker = matchingWorker(
-            image, referenceImages,
-            isCurrent = { incomingWorker === it },
-            completed = { matches ->
+        templateWorker?.cancel(true)
+        templateWorker = null
+        clearIncomingMatches()
+        val cachedTemplateMatches = templateMatches.toList()
+        val searches = referenceImages.toList()
+        val worker = object : SwingWorker<PairedMatches, Unit>() {
+            override fun doInBackground() = PairedMatches(
+                matchReferences(template, searches, cachedTemplateMatches) { isCancelled },
+                matchReferences(image, searches) { isCancelled },
+            )
+
+            override fun done() {
+                if (incomingWorker !== this || isCancelled) return
                 incomingWorker = null
-                incomingMatches = matches
-                refreshReferences()
-                updateControls()
-                onStatus("Reference images applied — ${matches.count { it != null }} match(es). Document not aligned.")
-            },
-            failed = {
-                incomingWorker = null
-                updateControls()
-            },
-        )
+                try {
+                    val matches = get()
+                    templateMatches = matches.template
+                    incomingMatches = matches.incoming
+                    val pairs = templateMatches.zip(incomingMatches).mapNotNull { (from, to) ->
+                        if (from == null || to == null) null else ReferencePair(
+                            ImagePoint(from.x + from.width / 2.0, from.y + from.height / 2.0),
+                            ImagePoint(to.x + to.width / 2.0, to.y + to.height / 2.0),
+                        )
+                    }
+                    try {
+                        alignment = estimateReferenceAlignment(pairs, template.width, template.height)
+                        val result = requireNotNull(alignment)
+                        val warning = if (result.pairs == 2)
+                            " Only two pairs: match correctness cannot be independently checked."
+                        else if (result.affine && result.inliers == 3)
+                            " Only three supporting pairs: affine alignment cannot be independently checked."
+                        else ""
+                        onStatus("Reference alignment ready — ${result.inliers}/${result.pairs} consistent pairs." +
+                            " ${if (result.affine) "Affine" else "Uniform-scale"} alignment.$warning Apply configuration to display adjusted fields.")
+                    } catch (e: IllegalArgumentException) {
+                        alignmentError = e.message ?: "Reference alignment failed."
+                        onStatus("Cannot align fields: $alignmentError No incoming field boxes displayed.")
+                    }
+                    refreshReferences()
+                } catch (e: ExecutionException) {
+                    updateControls()
+                    reportMatchingFailure(e.cause ?: e)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    updateControls()
+                    reportMatchingFailure(e)
+                } finally {
+                    updateControls()
+                }
+            }
+        }
         incomingWorker = worker
         updateControls()
-        onStatus("Finding reference images on the incoming document…")
+        val missing = searches.indices.count { cachedTemplateMatches.getOrNull(it) == null }
+        onStatus("Finding reference images — $missing template search(es), ${searches.size} incoming search(es).")
         worker.execute()
     }
 
@@ -336,18 +391,7 @@ class ImageComparisonView(
         completed: (List<ReferencesRectangle?>) -> Unit,
         failed: () -> Unit,
     ) = object : SwingWorker<List<ReferencesRectangle?>, Unit>() {
-        override fun doInBackground(): List<ReferencesRectangle?> = searches.map { search ->
-            require(search.width <= image.width && search.height <= image.height) {
-                "A reference image (${search.width} × ${search.height} px) is larger than the document."
-            }
-            // The library's first rectangle describes the matched crop; the second describes the full image.
-            findReferences(bgrCopy(image), bgrCopy(search)).firstOrNull()?.also {
-                require(it.x >= 0 && it.y >= 0 && it.width == search.width && it.height == search.height &&
-                    it.x.toLong() + it.width <= image.width && it.y.toLong() + it.height <= image.height) {
-                    "Reference matching returned an invalid rectangle."
-                }
-            }
-        }
+        override fun doInBackground() = matchReferences(image, searches) { isCancelled }
 
         override fun done() {
             if (!isCurrent(this) || isCancelled) return
@@ -366,7 +410,28 @@ class ImageComparisonView(
         }
     }
 
+    private fun matchReferences(
+        image: BufferedImage,
+        searches: List<BufferedImage>,
+        cached: List<ReferencesRectangle?> = emptyList(),
+        cancelled: () -> Boolean,
+    ): List<ReferencesRectangle?> = searches.mapIndexed { index, search ->
+        if (cancelled()) throw CancellationException()
+        cached.getOrNull(index)?.let { return@mapIndexed it }
+        require(search.width <= image.width && search.height <= image.height) {
+            "A reference image (${search.width} × ${search.height} px) is larger than the document."
+        }
+        // The library's first rectangle describes the matched crop; the second describes the full image.
+        findReferences(bgrCopy(image), bgrCopy(search)).firstOrNull()?.also {
+            require(it.x >= 0 && it.y >= 0 && it.width == search.width && it.height == search.height &&
+                it.x.toLong() + it.width <= image.width && it.y.toLong() + it.height <= image.height) {
+                "Reference matching returned an invalid rectangle."
+            }
+        }
+    }
+
     private fun reportMatchingFailure(error: Throwable) {
+        alignmentError = "Reference matching failed: ${error.message}"
         onStatus("Could not match reference images: ${error.message}")
         if (!GraphicsEnvironment.isHeadless()) {
             JOptionPane.showMessageDialog(this, error.message, "Could not match reference images", JOptionPane.ERROR_MESSAGE)
@@ -400,9 +465,10 @@ class ImageComparisonView(
         val height = size.height
         val crops = originalReferenceImages
         val displayedCrops = referenceImages
-        clearReferenceMatches()
+        val templateChanges = convertToA4 && (displayed.width != width || displayed.height != height)
+        if (templateChanges) clearReferenceMatches() else clearIncomingMatches()
         referenceList.clearSelection()
-        templateMatches = List(crops.size) { null }
+        if (templateChanges) templateMatches = List(crops.size) { null }
         configurationApplied = false
         refreshFields()
         val worker = object : SwingWorker<ResizedImages, Unit>() {
@@ -411,8 +477,8 @@ class ImageComparisonView(
                     if (image.width == w && image.height == h) image else bgrCopy(image, w, h)
                 return ResizedImages(
                     incoming = resize(incoming, width, height),
-                    template = if (convertToA4) resize(template, width, height) else displayed,
-                    references = if (convertToA4) crops.map {
+                    template = if (templateChanges) resize(template, width, height) else displayed,
+                    references = if (templateChanges) crops.map {
                         resize(it, (it.width.toDouble() * width / template.width).roundToInt().coerceAtLeast(1),
                             (it.height.toDouble() * height / template.height).roundToInt().coerceAtLeast(1))
                     } else displayedCrops,
@@ -424,7 +490,7 @@ class ImageComparisonView(
                 resizeWorker = null
                 try {
                     val resized = get()
-                    if (convertToA4) {
+                    if (templateChanges) {
                         templatePanal.load(resized.template)
                         referenceImages = resized.references
                         updateFieldList()
@@ -500,7 +566,15 @@ class ImageComparisonView(
         incomingWorker?.cancel(true)
         incomingWorker = null
         incomingMatches = emptyList()
+        clearAlignment()
         refreshReferences()
+    }
+
+    private fun clearAlignment() {
+        alignment = null
+        alignmentError = "Apply reference images first; at least two separated corresponding pairs are required."
+        configurationApplied = false
+        refreshFields()
     }
 
     private fun clearReferenceMatches() {
@@ -527,7 +601,11 @@ class ImageComparisonView(
     private fun refreshFields() {
         val visible = if (showFields.isSelected) displayedFields() else emptyList()
         templatePanal.showFields(visible, fieldList.selectedIndex)
-        secondPanel.showFields(if (configurationApplied) visible else emptyList(), fieldList.selectedIndex)
+        val transform = alignment?.transform
+        secondPanel.showFieldRegions(
+            if (configurationApplied && transform != null) visible.map(transform::region) else emptyList(),
+            fieldList.selectedIndex,
+        )
     }
 
     private fun Felter.fitsInside(image: BufferedImage): Boolean =

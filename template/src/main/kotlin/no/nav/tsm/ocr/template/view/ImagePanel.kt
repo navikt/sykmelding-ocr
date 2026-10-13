@@ -18,6 +18,7 @@ import java.awt.Graphics2D
 import java.awt.Polygon
 import java.awt.RenderingHints
 import java.awt.geom.Rectangle2D
+import java.awt.geom.Path2D
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
 import javax.swing.JPanel
@@ -41,7 +42,7 @@ class ImagePanel() : JPanel() {
     private var lineOverlay: BufferedImage? = null
     private var gridMode: GridMode? = null
     private val gridOverlays = mutableMapOf<GridMode, BufferedImage>()
-    private var fields: List<Felter> = emptyList()
+    private var fields: List<FieldRegion> = emptyList()
     private var selectedField = -1
     private var references: List<ReferencesRectangle?> = emptyList()
     private var selectedReference = -1
@@ -93,9 +94,13 @@ class ImagePanel() : JPanel() {
             val scaleX = renderWidth.toDouble() / source.width
             val scaleY = renderHight.toDouble() / source.height
             fields.forEachIndexed { index, field ->
-                val rectangle = Rectangle2D.Double(
-                    field.x * scaleX, field.y * scaleY, field.bredde * scaleX, field.hoyde * scaleY,
-                )
+                val rectangle = Path2D.Double().apply {
+                    field.corners.forEachIndexed { corner, point ->
+                        if (corner == 0) moveTo(point.x * scaleX, point.y * scaleY)
+                        else lineTo(point.x * scaleX, point.y * scaleY)
+                    }
+                    closePath()
+                }
                 if (index == selectedField) {
                     overlay.color = Color(255, 0, 0, 25)
                     overlay.fill(rectangle)
@@ -124,6 +129,10 @@ class ImagePanel() : JPanel() {
     }
 
     fun showFields(fields: List<Felter>, selectedIndex: Int = -1) {
+        showFieldRegions(fields.map { FieldTransform(1.0, 0.0, 0.0, 0.0).region(it) }, selectedIndex)
+    }
+
+    internal fun showFieldRegions(fields: List<FieldRegion>, selectedIndex: Int = -1) {
         this.fields = fields.toList()
         selectedField = selectedIndex
         repaint()

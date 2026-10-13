@@ -31,7 +31,7 @@ class ConfigurationOverlayTest {
     private val field = Felter(40, 30, 60, 40, "First name", "name")
 
     @Test
-    fun `configuration loads reference and sidebar while incoming overlays require apply`() {
+    fun `configuration loads reference and sidebar but cannot apply without reference alignment`() {
         val file = configuration()
         SwingUtilities.invokeAndWait {
             var status = ""
@@ -51,8 +51,8 @@ class ConfigurationOverlayTest {
             assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
 
             apply.doClick()
-            assertEquals(Color.RED.rgb, render(view.secondPanel).getRGB(40, 50))
-            assertTrue(status.contains("document not aligned"))
+            assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
+            assertTrue(status.contains("Cannot apply configuration"))
             assertEquals(Color.WHITE.rgb, incoming.getRGB(40, 50))
 
             val list = controls.filterIsInstance<JList<*>>().first()
@@ -60,7 +60,7 @@ class ConfigurationOverlayTest {
             assertTrue(controls.filterIsInstance<JTextArea>().any {
                 it.text.contains("x: 40 px") && it.text.contains("Width: 60 px") && it.text.contains("ID: name")
             })
-            for (panel in listOf(view.templatePanal, view.secondPanel)) {
+            for (panel in listOf(view.templatePanal)) {
                 val rendered = render(panel)
                 assertEquals(Color.RED.rgb, rendered.getRGB(41, 50), "Selected outline should be thicker")
                 assertTrue(rendered.getRGB(60, 50) != Color.WHITE.rgb, "Selected region should be tinted")
@@ -71,7 +71,8 @@ class ConfigurationOverlayTest {
             assertEquals(Color.WHITE.rgb, render(view.templatePanal).getRGB(40, 50))
             assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
             toggle.doClick()
-            assertEquals(Color.RED.rgb, render(view.secondPanel).getRGB(40, 50))
+            assertEquals(Color.RED.rgb, render(view.templatePanal).getRGB(40, 50))
+            assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
         }
     }
 
@@ -102,7 +103,7 @@ class ConfigurationOverlayTest {
     }
 
     @Test
-    fun `overlays scale with display size but not with document dimensions`() {
+    fun `different document dimensions never allow unadjusted overlays`() {
         val file = configuration()
         SwingUtilities.invokeAndWait {
             var status = ""
@@ -110,16 +111,15 @@ class ConfigurationOverlayTest {
             view.loadConfiguration(file)
             view.loadSecond(image(400, 200))
             descendants(view).filterIsInstance<JButton>().single { it.text == "Apply configuration" }.doClick()
-            assertTrue(status.contains("dimensions differ"))
-            assertTrue(status.contains("not been rescaled"))
-            assertEquals(Color.RED.rgb, render(view.secondPanel, 400, 200).getRGB(40, 50))
-            assertEquals(Color.RED.rgb, render(view.secondPanel, 800, 400).getRGB(80, 100))
-            assertEquals(Color.RED.rgb, render(view.secondPanel, 400, 400).getRGB(40, 50))
+            assertTrue(status.contains("Cannot apply configuration"))
+            assertEquals(Color.WHITE.rgb, render(view.secondPanel, 400, 200).getRGB(40, 50))
+            assertEquals(Color.WHITE.rgb, render(view.secondPanel, 800, 400).getRGB(80, 100))
+            assertEquals(Color.WHITE.rgb, render(view.secondPanel, 400, 400).getRGB(40, 50))
             assertEquals(Color.WHITE.rgb, render(view.secondPanel, 400, 200).getRGB(160, 50))
 
             view.loadSecond(image(80, 50))
             descendants(view).filterIsInstance<JButton>().single { it.text == "Apply configuration" }.doClick()
-            assertTrue(status.contains("1 field(s) extend beyond"))
+            assertTrue(status.contains("Cannot apply configuration"))
         }
     }
 
@@ -141,7 +141,8 @@ class ConfigurationOverlayTest {
             )) {
                 val invalid = configuration(invalidFields)
                 assertFails { view.loadConfiguration(invalid) }
-                assertEquals(Color.RED.rgb, render(view.secondPanel).getRGB(40, 50))
+                assertEquals(Color.RED.rgb, render(view.templatePanal).getRGB(40, 50))
+                assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
                 assertEquals(field, descendants(view).filterIsInstance<JList<*>>().first().model.getElementAt(0))
             }
             val invalid = directory.resolve("broken.json")
@@ -150,7 +151,8 @@ class ConfigurationOverlayTest {
             val missingImage = configuration()
             directory.resolve("reference.png").delete()
             assertFails { view.loadConfiguration(missingImage) }
-            assertEquals(Color.RED.rgb, render(view.secondPanel).getRGB(40, 50))
+            assertEquals(Color.RED.rgb, render(view.templatePanal).getRGB(40, 50))
+            assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
         }
     }
 

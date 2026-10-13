@@ -248,7 +248,7 @@ class ReferenceOverlayTest {
 
     @Test
     fun `automatic normalization scales fields and crops once and leaves configuration unchanged`() {
-        val file = configuration()
+        val file = configuration(count = 2)
         val original = TemplateFiles.read(file).copy(felter = listOf(Felter(40, 30, 60, 40, "Name", "name")))
         TemplateFiles.write(file, original)
         val saved = file.readText()
@@ -257,8 +257,8 @@ class ReferenceOverlayTest {
         var status = ""
         val view = ImageComparisonView(findReferences = { image, crop ->
             matchedSize = image.width to image.height
-            cropSize = crop.width to crop.height
-            listOf(ReferencesRectangle(0, 0, crop.width, crop.height))
+            if (crop.width == 234) cropSize = crop.width to crop.height
+            listOf(ReferencesRectangle(if (crop.width == 234) 0 else 1000, 0, crop.width, crop.height))
         }, onStatus = { status = it })
         val incoming = image(100, 80)
         edt {
@@ -281,8 +281,10 @@ class ReferenceOverlayTest {
             assertTrue(text(view).contains("x: 935 px"))
             button(view, "Apply configuration").doClick()
             assertFalse(status.contains("dimensions differ"))
+            assertTrue(status.contains("Configuration applied"))
             assertEquals(Color.RED.rgb, render(view.secondPanel).getRGB(935, 1100))
             applyButton(view).doClick()
+            assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(935, 1100))
         }
         await { applyButton(view).isEnabled }
         edt {
@@ -330,7 +332,7 @@ class ReferenceOverlayTest {
         }
         await { applyButton(view).isEnabled }
         edt {
-            assertEquals(1, calls.get())
+            assertEquals(2, calls.get())
             assertEquals(3307, view.templatePanal.image!!.width)
             assertEquals(4677, view.templatePanal.image!!.height)
             button(view, "Reset image sizes").doClick()
@@ -339,7 +341,7 @@ class ReferenceOverlayTest {
         }
         Thread.sleep(500)
         edt {
-            assertEquals(1, calls.get())
+            assertEquals(2, calls.get())
             assertSame(incoming, view.secondPanel.image)
             assertEquals(100, view.templatePanal.image!!.width)
             assertTrue(applyButton(view).isEnabled)
