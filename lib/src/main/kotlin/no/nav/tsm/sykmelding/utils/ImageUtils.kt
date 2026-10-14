@@ -56,8 +56,10 @@ private fun findCountours(image: Mat, mode: RetreivalMode, method: RetreivalMeth
     opencv_imgproc.findContours(contourInput, contours, hierarchy, mode.value, method.value)
     return contours
 }
-
-internal fun grayscale(image: Mat): Mat {
+fun grayscale(image: BufferedImage): Mat {
+    return grayscale(toMat(image))
+}
+fun grayscale(image: Mat): Mat {
     require(image.depth() == CV_8U) { "Contour image must have 8-bit pixels" }
     val gray = Mat()
     when (image.channels()) {

@@ -767,11 +767,10 @@ class ImageComparisonView(
         secondPanel.showReferences(incomingMatches, index)
         referenceDetails.text = if (index < 0) "Select a reference image to locate it on the template." else {
             fun describe(match: ReferencesRectangle?) = match?.let {
-                "x: ${it.x} px, y: ${it.y} px\nWidth: ${it.width} px, Height: ${it.height} px" +
-                    (it.confidence?.let { score -> "\nCorrelation: %.2f at %.0f %% size".format(score, 100 * it.scale) } ?: "")
+                "x: ${it.x} px, y: ${it.y} px\nWidth: ${it.width} px, Height: ${it.height} px"
             } ?: "No match displayed."
-            "${references[index].name}\n\nTemplate: ${describe(templateMatches.getOrNull(index))}\n\n" +
-                "Incoming: ${describe(incomingMatches.getOrNull(index))}"
+            "${references[index].name}\n\nPageTemplate: ${describe(templateMatches.getOrNull(index))}\n\n" +
+                    "Incoming: ${describe(incomingMatches.getOrNull(index))}"
         }
         referenceDetails.caretPosition = 0
     }

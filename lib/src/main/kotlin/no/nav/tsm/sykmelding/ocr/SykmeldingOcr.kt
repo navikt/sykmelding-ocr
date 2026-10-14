@@ -1,33 +1,20 @@
 package no.nav.tsm.sykmelding.ocr
 
 import org.bytedeco.javacpp.DoublePointer
-import org.bytedeco.javacpp.PointerScope
 import org.bytedeco.javacv.Java2DFrameUtils
-import org.bytedeco.opencv.global.opencv_core.minMaxLoc
-import org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGR2GRAY
-import org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGRA2GRAY
-import org.bytedeco.opencv.global.opencv_imgproc.INTER_AREA
-import org.bytedeco.opencv.global.opencv_imgproc.INTER_LINEAR
-import org.bytedeco.opencv.global.opencv_imgproc.TM_CCOEFF_NORMED
-import org.bytedeco.opencv.global.opencv_imgproc.cvtColor
-import org.bytedeco.opencv.global.opencv_imgproc.matchTemplate
-import org.bytedeco.opencv.global.opencv_imgproc.resize
+import org.bytedeco.opencv.global.opencv_core.*
+import org.bytedeco.opencv.global.opencv_imgproc.*
 import org.bytedeco.opencv.opencv_core.Mat
 import org.bytedeco.opencv.opencv_core.Point
-import org.bytedeco.opencv.opencv_core.Rect
-import org.bytedeco.opencv.opencv_core.Size
+import org.bytedeco.opencv.opencv_core.Scalar
 import org.bytedeco.tesseract.TessBaseAPI
-import org.bytedeco.tesseract.global.tesseract.OEM_LSTM_ONLY
-import org.bytedeco.tesseract.global.tesseract.PSM_AUTO
-import org.bytedeco.tesseract.global.tesseract.TessDeleteText
+import org.bytedeco.tesseract.global.tesseract.*
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import javax.swing.JLabel
-import kotlin.math.roundToInt
 
 enum class PSM_MODE(val value: Int) {
     PSM_OSD_ONLY(0),
@@ -178,121 +165,81 @@ class SykmeldingOcr(val ocr: Ocr) {
         return parseResults
     }
 
-    /**
-     * Finds [searchImage] (a reference crop) on [referenceImage] (a page) with OpenCV's TM_CCOEFF_NORMED template
-     * matching. The crop is tried at scales from `minScale` to `maxScale` (default 0.8–1.2), because a form printed or
-     * scanned at another size is another size at the same DPI: first on a downscaled copy of the page, then at full
-     * resolution around the best place. The first rectangle is where the (scaled) crop lies on the page; its
-     * [ReferencesRectangle.confidence] is the raw correlation (1 = identical, about 0.8 or more for the same print).
-     * Empty when the best correlation is below `minScore` (default [DEFAULT_MIN_SCORE]): the crop is not on the page.
-     * The second rectangle has the page's size, as before.
-     */
     public fun findReferences(
         referenceImage: BufferedImage,
         searchImage: BufferedImage,
         configs: Map<String, Any?> = emptyMap()
-    ): List<ReferencesRectangle> = PointerScope().use {
-        val minScale = (configs["minScale"] as? Number)?.toDouble() ?: DEFAULT_MIN_SCALE
-        val maxScale = (configs["maxScale"] as? Number)?.toDouble() ?: DEFAULT_MAX_SCALE
-        val minScore = (configs["minScore"] as? Number)?.toDouble() ?: DEFAULT_MIN_SCORE
-        require(minScale > 0 && minScale <= maxScale) { "Invalid scale range $minScale–$maxScale" }
-        val page = gray(Java2DFrameUtils.toMat(referenceImage))
-        val crop = gray(Java2DFrameUtils.toMat(searchImage))
-        if (page.empty() || crop.empty()) return emptyList()
+    ): List<ReferencesRectangle> {
+        val referenceImgMat = Java2DFrameUtils.toMat(referenceImage)
+        val searchImgMat = Java2DFrameUtils.toMat(searchImage)
 
-        // Coarse: the page at about a quarter of its size, but never so small that the crop's short side drops below 16 px.
-        val coarse = minOf(1.0, maxOf(COARSE_FACTOR, 16.0 / (minScale * minOf(crop.cols(), crop.rows()))))
-        val smallPage = scaled(page, coarse)
-        var best: Match? = null
-        var scale = minScale
-        while (scale <= maxScale + 1e-9) {
-            match(smallPage, crop, scale * coarse, null)?.let { found ->
-                if (best == null || found.score > best.score) best = found.copy(scale = scale)
-            }
-            scale += COARSE_STEP
-        }
-        val rough = best ?: return emptyList()
-
-        // Fine: full resolution, near the coarse scale, in a window around the coarse place.
-        val roughX = (rough.x / coarse).roundToInt()
-        val roughY = (rough.y / coarse).roundToInt()
-        val margin = (2 / coarse).roundToInt() + (maxOf(crop.cols(), crop.rows()) * COARSE_STEP).roundToInt() + 4
-        var fine: Match? = null
-        var fineScale = maxOf(minScale, rough.scale - COARSE_STEP)
-        while (fineScale <= minOf(maxScale, rough.scale + COARSE_STEP) + 1e-9) {
-            val width = (crop.cols() * fineScale).roundToInt()
-            val height = (crop.rows() * fineScale).roundToInt()
-            val window = Rect(roughX - margin, roughY - margin, width + 2 * margin, height + 2 * margin)
-                .intersect(page.cols(), page.rows())
-            if (window != null) match(page, crop, fineScale, window)?.let { found ->
-                if (fine == null || found.score > fine.score) fine = found.copy(scale = fineScale)
-            }
-            fineScale += FINE_STEP
-        }
-        val result = fine ?: rough.let { it.copy(x = roughX, y = roughY, width = (crop.cols() * it.scale).roundToInt(),
-            height = (crop.rows() * it.scale).roundToInt()) }
-        if (result.score < minScore) return emptyList()
-        listOf(
-            ReferencesRectangle(result.x, result.y, result.width, result.height, result.score.toFloat(), result.scale),
-            ReferencesRectangle(result.x, result.y, page.cols(), page.rows(), result.score.toFloat(), result.scale),
-        )
-    }
-
-    private data class Match(val x: Int, val y: Int, val width: Int, val height: Int, val score: Double, val scale: Double = 1.0)
-
-    /** [crop] resized by [factor], matched on [page] (within [window], in page pixels); null when it does not fit. */
-    private fun match(page: Mat, crop: Mat, factor: Double, window: Rect?): Match? {
-        val width = (crop.cols() * factor).roundToInt()
-        val height = (crop.rows() * factor).roundToInt()
-        if (width < 4 || height < 4) return null
-        val area = window ?: Rect(0, 0, page.cols(), page.rows())
-        if (width > area.width() || height > area.height()) return null
-        val resized = Mat()
-        resize(crop, resized, Size(width, height), 0.0, 0.0, if (factor < 1) INTER_AREA else INTER_LINEAR)
         val result = Mat()
-        matchTemplate(Mat(page, area), resized, result, TM_CCOEFF_NORMED)
+
+        if (referenceImgMat.empty() || searchImgMat.empty()) {
+            println("One of the images is empty, cannot perform template matching.")
+            return emptyList()
+        }
+
+        val resultCols = referenceImgMat.cols() - searchImgMat.cols() + 1
+        val resultRows = referenceImgMat.rows() - searchImgMat.rows() + 1
+        result.create(resultRows, resultCols, CV_32FC1)
+
+        matchTemplate(referenceImgMat, searchImgMat, result, TM_CCOEFF_NORMED)
+        normalize(result, result, 0.0, 1.0, NORM_MINMAX, -1, null)
+
+
+        val minVal = DoublePointer(1)
         val maxVal = DoublePointer(1)
+        val minLoc = Point()
         val maxLoc = Point()
-        minMaxLoc(result, null, maxVal, null, maxLoc, null)
-        val score = maxVal.get()
-        // A blank crop or page area has no variance; OpenCV then reports NaN or infinity.
-        if (!score.isFinite()) return null
-        return Match(area.x() + maxLoc.x(), area.y() + maxLoc.y(), width, height, score)
-    }
 
-    private fun Rect.intersect(width: Int, height: Int): Rect? {
-        val left = maxOf(0, x())
-        val top = maxOf(0, y())
-        val right = minOf(width, x() + width())
-        val bottom = minOf(height, y() + height())
-        return if (right > left && bottom > top) Rect(left, top, right - left, bottom - top) else null
-    }
+        minMaxLoc(result, minVal, maxVal, minLoc, maxLoc, null)
+        val matchLoc = maxLoc
+        val confidence = maxVal.get()
 
-    private fun gray(image: Mat): Mat = when (image.channels()) {
-        1 -> image
-        3 -> Mat().also { cvtColor(image, it, COLOR_BGR2GRAY) }
-        4 -> Mat().also { cvtColor(image, it, COLOR_BGRA2GRAY) }
-        else -> error("Unsupported image with ${image.channels()} channels")
-    }
+        rectangle(
+            referenceImgMat,
+            matchLoc,
+            Point(maxLoc.x() + searchImgMat.cols(), maxLoc.y() + searchImgMat.rows()),
+            Scalar(0.0, 0.0, 255.0, 0.0),
+            2,
+            8,
+            0
+        )
 
-    private fun scaled(image: Mat, factor: Double): Mat = if (factor == 1.0) image else Mat().also {
-        resize(image, it, Size((image.cols() * factor).roundToInt().coerceAtLeast(1), (image.rows() * factor).roundToInt().coerceAtLeast(1)),
-            0.0, 0.0, INTER_AREA)
-    }
+        rectangle(
+            result,
+            matchLoc,
+            Point(maxLoc.x() + searchImgMat.cols(), maxLoc.y() + searchImgMat.rows()),
+            Scalar(0.0, 0.0, 255.0, 0.0),
+            2,
+            8,
+            0
+        )
 
-    companion object {
-        /** Below this correlation the crop is taken as not on the page; wrong lines of text score about 0.3–0.5. */
-        const val DEFAULT_MIN_SCORE = 0.6
-        const val DEFAULT_MIN_SCALE = 0.8
-        const val DEFAULT_MAX_SCALE = 1.2
-        private const val COARSE_FACTOR = 0.25
-        private const val COARSE_STEP = 0.02
-        private const val FINE_STEP = 0.005
+        val resultRectangle = ReferencesRectangle(
+            x = matchLoc.x(),
+            y = matchLoc.y(),
+            width = searchImgMat.cols(),
+            height = searchImgMat.rows(),
+            confidence = confidence.toFloat()
+        )
+
+        // burde denne ha ein anna x og y kanskje ?
+        val referenceImgRectangle = ReferencesRectangle(
+            x = matchLoc.x(),
+            y = matchLoc.y(),
+            width = referenceImgMat.cols(),
+            height = referenceImgMat.rows(),
+            confidence = confidence.toFloat()
+
+        )
+
+        return listOf(resultRectangle, referenceImgRectangle)
     }
 }
 
-/** [confidence] is the raw TM_CCOEFF_NORMED correlation; [scale] the size of the crop as found, relative to the crop. */
-data class ReferencesRectangle(val x: Int, val y: Int, val width: Int, val height: Int, val confidence: Float? = null, val scale: Double = 1.0)
+data class ReferencesRectangle(val x: Int, val y: Int, val width: Int, val height: Int, val confidence: Float? = null)
 
 data class Field(
     val x: Int,
