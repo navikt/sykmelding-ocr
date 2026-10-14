@@ -225,8 +225,8 @@ class FieldOcrViewTest {
             directory.resolve("ref-$width.png").also { ImageIO.write(image(width, 10), "png", it) }.absolutePath
         }
         return directory.resolve("config.json").also {
-            TemplateFiles.write(it, Template("Fields", refs, "", listOf(field,
-                Felter(3200, 100, 100, 50, "Outside", "outside")), template.absolutePath))
+            TemplateFiles.write(it, Template("Fields", "", listOf(field,
+                Felter(3200, 100, 100, 50, "Outside", "outside")), template.absolutePath, referansepunkter = refs))
         }
     }
 

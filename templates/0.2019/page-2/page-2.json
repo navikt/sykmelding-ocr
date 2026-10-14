@@ -1,0 +1,15 @@
+{
+  "navn" : "page-2",
+  "beskrivelse" : "Fra PDF-side 2",
+  "felter" : [ ],
+  "templateBilde" : "template.png",
+  "gridSettings" : {
+    "minimumLineLength" : 0,
+    "gapSize" : 3,
+    "minimumCellSize" : 12,
+    "inkThreshold" : 225
+  },
+  "gridEdits" : [ ],
+  "requiredText" : null,
+  "referansepunkter" : [ ]
+}

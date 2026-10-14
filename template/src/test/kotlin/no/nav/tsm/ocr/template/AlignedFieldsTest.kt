@@ -56,7 +56,7 @@ class AlignedFieldsTest {
             }.absolutePath
         }
         val file = directory.resolve("portrait.json")
-        TemplateFiles.write(file, Template("Portrait", references, "", listOf(field), templateFile.absolutePath))
+        TemplateFiles.write(file, Template("Portrait", "", listOf(field), templateFile.absolutePath, referansepunkter = references))
         var status = ""
         val view = ImageComparisonView(findReferences = { page, crop ->
             val matches = if (page.getRGB(0, 0) == Color.BLACK.rgb) incomingMatches else templateMatches
@@ -347,7 +347,8 @@ class AlignedFieldsTest {
             directory.resolve("crop-$width.png").also { ImageIO.write(image(width, 10), "png", it) }.absolutePath
         }
         return directory.resolve("config.json").also {
-            TemplateFiles.write(it, Template("Test", references, "", listOf(field), directory.resolve("template.png").absolutePath))
+            TemplateFiles.write(it, Template("Test", "", listOf(field), directory.resolve("template.png").absolutePath,
+                referansepunkter = references))
         }
     }
 

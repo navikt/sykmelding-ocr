@@ -230,7 +230,8 @@ class PageNumberViewTest {
         ImageIO.write(image(3307, 4677), "png", template)
         ImageIO.write(image(500, 100), "png", reference)
         return directory.resolve("configuration.json").also {
-            TemplateFiles.write(it, Template("Page number", listOf(reference.absolutePath), "", emptyList(), template.absolutePath))
+            TemplateFiles.write(it, Template("Page number", "", emptyList(), template.absolutePath,
+                referansepunkter = listOf(reference.absolutePath)))
         }
     }
 

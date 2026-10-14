@@ -139,8 +139,8 @@ class ReferenceOverlayTest {
             val previous = view.templatePanal.image
             val invalid = directory.resolve("invalid.json")
             TemplateFiles.write(invalid, Template(
-                "Invalid", listOf(directory.resolve("missing.png").absolutePath), "", emptyList(),
-                directory.resolve("template.png").absolutePath,
+                "Invalid", "", emptyList(), directory.resolve("template.png").absolutePath,
+                referansepunkter = listOf(directory.resolve("missing.png").absolutePath),
             ))
             assertFails { view.loadConfiguration(invalid) }
             assertSame(previous, view.templatePanal.image)
@@ -355,8 +355,8 @@ class ReferenceOverlayTest {
         }
         return directory.resolve("config.json").also {
             TemplateFiles.write(it, Template(
-                "References", paths.map { path -> directory.resolve(path).absolutePath }, "", emptyList(),
-                directory.resolve("template.png").absolutePath,
+                "References", "", emptyList(), directory.resolve("template.png").absolutePath,
+                referansepunkter = paths.map { path -> directory.resolve(path).absolutePath },
             ))
         }
     }
