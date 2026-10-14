@@ -210,6 +210,5 @@
     "inkThreshold" : 225
   },
   "gridEdits" : [ ],
-  "requiredText" : null,
   "referansepunkter" : [ "a.png", "sykmelding.png", "nav-eksemplar-side-1-3.png", "format.png" ]
 }

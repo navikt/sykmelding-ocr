@@ -4,7 +4,6 @@ import no.nav.tsm.ocr.template.testing.BatchResult
 import no.nav.tsm.ocr.template.testing.BatchSettings
 import no.nav.tsm.ocr.template.testing.BatchStatus
 import no.nav.tsm.ocr.template.testing.DocumentPages
-import no.nav.tsm.ocr.template.testing.DocumentText
 import no.nav.tsm.ocr.template.testing.FeatureSettings
 import no.nav.tsm.ocr.template.testing.TemplateCache
 import no.nav.tsm.ocr.template.testing.pageCount
@@ -166,9 +165,6 @@ internal enum class PageRole(private val label: String) {
  */
 internal class TemplateOutcome(val page: Int, val template: LibraryPage, val role: PageRole, val result: BatchResult) {
     val matched: Boolean get() = result.status == BatchStatus.MATCH
-
-    /** Rejected for lacking the required text, without being aligned. */
-    val rejectedByText: Boolean get() = result.text?.rejects == true && !result.aligned
 }
 
 /** The most template form lines on the aligned page first, then the largest share of agreeing matches. */
@@ -208,7 +204,6 @@ internal class PageResult(
         match != null -> "${match.template.label} — the template's next page (${metrics(match.result)})"
         role == PageRole.NEXT && expected != null ->
             "✗ is not ${expected.label}, the template's next page (${outcomes.firstOrNull()?.result?.let(::metrics) ?: "not tested"})"
-        outcomes.isNotEmpty() && outcomes.all { it.rejectedByText } -> "no template's first page — none of their required text is on the page"
         else -> "no template's first page matched" + (outcomes.firstOrNull()?.takeIf { it.result.status != BatchStatus.ERROR }
             ?.let { "; closest ${it.template.label} (${metrics(it.result)})" } ?: "")
     }
@@ -281,7 +276,6 @@ private fun TemplateOutcome.withoutPreview(): TemplateOutcome {
         outcomes = full.outcomes,
         lineFit = full.lineFit,
         aligned = full.aligned,
-        text = full.text,
     ))
 }
 
@@ -293,8 +287,7 @@ private fun metrics(result: BatchResult): String = listOfNotNull(
 /** [BatchSettings.description] without the page, which differs per test here. */
 internal fun describeSettings(settings: BatchSettings): String =
     "${settings.features.description}, ${settings.model.toString().substringBefore(" +")}, " +
-        "form lines ≥ %.0f %%".format(100 * settings.minLineFit) +
-        if (settings.checkText) ", required text checked first" else ", required text not checked"
+        "form lines ≥ %.0f %%".format(100 * settings.minLineFit)
 
 /**
  * Matches the pages of [file] to template pages, in order:
@@ -328,17 +321,16 @@ internal fun testAgainstTemplates(
     if (firstPages.isEmpty()) {
         return PdfTestResult(PdfStatus.ERROR, "No template has a first page that can be tested.", pages, settings = settings)
     }
-    val texts = DocumentText(file)
+
     return DocumentPages(file, settings.features).use { documentPages ->
         val results = mutableListOf<PageResult>()
         progress(0, pages)
         var page = 1
         while (page <= pages) {
-            val start = findStart(file, page, firstPages, settings, pool, texts, documentPages, cancelled) ?: return null
+            val start = findStart(file, page, firstPages, settings, pool, documentPages, cancelled) ?: return null
             val anchor = start.match?.template
             results += start
             progress(results.size, pages)
-            texts.release(page)
             documentPages.release(page)
             page++
             if (anchor == null) continue
@@ -349,7 +341,7 @@ internal fun testAgainstTemplates(
                 .map { (documentPage, position) ->
                     val expected = templates.page(anchor.templateFile, position)
                     Follower(documentPage, position, expected,
-                        expected?.let { submit(pool, file, documentPage, it, PageRole.NEXT, settings, texts, documentPages, cancelled) })
+                        expected?.let { submit(pool, file, documentPage, it, PageRole.NEXT, settings, documentPages, cancelled) })
                 }
             // Every test is awaited before giving up, so none still reads the file when the caller deletes it.
             val next = followers.map { follower ->
@@ -362,7 +354,6 @@ internal fun testAgainstTemplates(
                     await(test, file, follower.page, expected, PageRole.NEXT)?.let { PageResult(follower.page, PageRole.NEXT, listOf(it), expected.page) }
                 }
             }
-            followers.forEach { texts.release(it.page); documentPages.release(it.page) }
             if (next.any { it == null }) return null
             next.forEach { results += checkNotNull(it); progress(results.size, pages) }
             page += followers.size
@@ -385,10 +376,10 @@ internal fun testAgainstTemplates(
  * those not started by then are skipped. Null when [cancelled] before every first page was tried without a match.
  */
 private fun findStart(file: File, page: Int, firstPages: List<PreparedTemplate>, settings: BatchSettings, pool: ExecutorService,
-                      texts: DocumentText, documentPages: DocumentPages, cancelled: () -> Boolean): PageResult? {
+                      documentPages: DocumentPages, cancelled: () -> Boolean): PageResult? {
     val found = AtomicBoolean()
     val futures = firstPages.map { candidate ->
-        submit(pool, file, page, candidate, PageRole.START, settings, texts, documentPages) { found.get() || cancelled() }
+        submit(pool, file, page, candidate, PageRole.START, settings, documentPages) { found.get() || cancelled() }
     }
     val tested = mutableListOf<TemplateOutcome>()
     for ((future, candidate) in futures.zip(firstPages)) {
@@ -403,11 +394,11 @@ private fun findStart(file: File, page: Int, firstPages: List<PreparedTemplate>,
 
 /** Queues one test; it is skipped (its future gives null) if [skip] is true when it would start. */
 private fun submit(pool: ExecutorService, file: File, page: Int, candidate: PreparedTemplate, role: PageRole, settings: BatchSettings,
-                   texts: DocumentText, documentPages: DocumentPages, skip: () -> Boolean): Future<TemplateOutcome?> =
+                   documentPages: DocumentPages, skip: () -> Boolean): Future<TemplateOutcome?> =
     pool.submit(Callable<TemplateOutcome?> {
         if (skip()) return@Callable null
         TemplateOutcome(page, candidate.page, role, testTemplatePage(candidate.page.template, candidate.reference, file, page, settings,
-            documentPages, candidate.cache, texts))
+            documentPages, candidate.cache))
     })
 
 /** The test's outcome; a test that failed outside the pipeline's own error handling becomes an error outcome. */

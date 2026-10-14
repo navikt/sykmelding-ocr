@@ -1,9 +1,8 @@
 package no.nav.tsm.sykmelding.utils
 
+import org.bytedeco.javacpp.indexer.IntIndexer
 import org.bytedeco.javacv.Java2DFrameConverter
 import org.bytedeco.javacv.OpenCVFrameConverter
-import org.bytedeco.javacpp.indexer.FloatIndexer
-import org.bytedeco.javacpp.indexer.IntIndexer
 import org.bytedeco.opencv.global.opencv_core.CV_8U
 import org.bytedeco.opencv.global.opencv_imgproc
 import org.bytedeco.opencv.opencv_core.Mat
@@ -28,10 +27,6 @@ enum class RetreivalMethod(val value: Int) {
     CHAIN_APPROX_SIMPLE(2),
     CHAIN_APPROX_TC89_L1(3),
     CHAIN_APPROX_TC89_KCOS(4)
-}
-
-fun toGrayscaleMat(bufferedImage: BufferedImage): Mat {
-    return Mat()
 }
 
 fun toBufferedImage(mat: Mat): BufferedImage {
@@ -72,21 +67,6 @@ internal fun grayscale(image: Mat): Mat {
         else -> throw IllegalArgumentException("Unsupported contour image channel count: ${image.channels()}")
     }
     return gray
-}
-
-fun findHarrisCorners(image: Mat): List<Point> {
-    val gray = grayscale(image)
-    val corners = Mat()
-    opencv_imgproc.goodFeaturesToTrack(gray, corners, 500, 0.01, 8.0, Mat(), 3, true, 0.04)
-    if (corners.empty()) return emptyList()
-    return corners.createIndexer<FloatIndexer>().use { indexer ->
-        (0 until corners.rows()).map { row ->
-            Point(
-                indexer.get(row.toLong(), 0L, 0L).roundToInt(),
-                indexer.get(row.toLong(), 0L, 1L).roundToInt(),
-            )
-        }
-    }
 }
 
 /** Detect cells from rules rather than from all ink (which also contains text). */

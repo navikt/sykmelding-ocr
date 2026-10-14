@@ -1,6 +1,5 @@
 package no.nav.tsm.ocr.template.gcp
 
-import no.nav.tsm.ocr.template.testing.TEXT_DPI
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.rendering.ImageType
 import org.apache.pdfbox.rendering.PDFRenderer
@@ -400,7 +399,7 @@ internal class CreateTemplateDialog(
             val renderer = PDFRenderer(document)
             for (page in pages) {
                 if (isCancelled) return@use
-                publish(page to runCatching { detectOrientation(renderer.renderImageWithDPI(page - 1, TEXT_DPI.toFloat(), ImageType.GRAY)) })
+                publish(page to runCatching { detectOrientation(renderer.renderImageWithDPI(page - 1, 400.toFloat(), ImageType.GRAY)) })
             }
         }
 

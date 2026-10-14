@@ -13,11 +13,8 @@ import no.nav.tsm.sykmelding.utils.createGridMask
 import no.nav.tsm.sykmelding.utils.findGridCells
 import no.nav.tsm.sykmelding.utils.toBufferedImage
 import no.nav.tsm.sykmelding.utils.findContourBoxes
-import no.nav.tsm.sykmelding.utils.findHarrisCorners
 import no.nav.tsm.sykmelding.utils.FeatureDetectorType
 import no.nav.tsm.sykmelding.utils.findFeatures
-import no.nav.tsm.sykmelding.utils.findTextGroups
-import no.nav.tsm.sykmelding.utils.TextGroupSettings
 import no.nav.tsm.sykmelding.utils.toMat
 import org.bytedeco.opencv.opencv_core.Rect
 import org.example.no.nav.tsm.ocr.template.template.Felter
@@ -31,11 +28,7 @@ import org.example.no.nav.tsm.ocr.template.template.PdfTemplateImages
 import org.example.no.nav.tsm.ocr.template.template.PageOrientation
 import org.example.no.nav.tsm.ocr.template.template.PageRotation
 import org.example.no.nav.tsm.ocr.template.template.OrientationGuess
-import org.example.no.nav.tsm.ocr.template.template.TextRegion
-import org.example.no.nav.tsm.ocr.template.template.TextRequirement
 import org.example.no.nav.tsm.ocr.template.template.clearTemplateAreas
-import no.nav.tsm.ocr.template.testing.PageText
-import no.nav.tsm.ocr.template.testing.TextCheck
 import org.bytedeco.opencv.opencv_core.Mat
 import java.awt.BasicStroke
 import java.awt.BorderLayout
@@ -110,17 +103,7 @@ class TemplateView(
         }
     }
     private val editFieldButton = button("Rediger") { editSelectedField() }.apply { isEnabled = false }
-    private val requiredText = TextRequirementPanel(template?.requiredText)
-    private val textTestResult = JTextArea(7, 22).apply {
-        isEditable = false
-        lineWrap = true
-        wrapStyleWord = true
-        font = Font(Font.MONOSPACED, Font.PLAIN, 11)
-    }
-    private val testTextButton = JButton("Test on image").apply {
-        toolTipText = "Read the template image as a page would be read, and show which words are found and the text read."
-        addActionListener { testRequiredText() }
-    }
+
     private var areaAction: String? = null
     private var originalImage: BufferedImage? = null
     private val removedAreas = mutableListOf<List<ImageClearArea>>()
@@ -168,27 +151,7 @@ class TemplateView(
     private val showCellsButton = JButton("Cells").apply {
         addActionListener { cancelSelection(); detectCells() }
     }
-    private val textHorizontalGap = JSpinner(SpinnerNumberModel(0, 0, 1000, 1))
-    private val textVerticalGap = JSpinner(SpinnerNumberModel(0, 0, 1000, 1))
-    private val textMinimumWidth = JSpinner(SpinnerNumberModel(0, 0, 10000, 1))
-    private val textMinimumHeight = JSpinner(SpinnerNumberModel(0, 0, 10000, 1))
-    private val textMinimumLineLength = JSpinner(SpinnerNumberModel(0, 0, 10000, 1))
-    private val textRemoveLines = JCheckBox("Remove form lines", true).apply {
-        addActionListener { textMinimumLineLength.isEnabled = isSelected }
-    }
-    private val showTextGroupsButton = JButton("Detect text groups").apply {
-        toolTipText = "Find candidate text regions using OpenCV (without text recognition)"
-        addActionListener { detectTextGroups() }
-    }
-    private val showHarrisButton = JButton("Harris corners").apply {
-        addActionListener {
-            if (!requireImage()) return@addActionListener
-            cancelSelection()
-            runCatching { canvas.showHarrisCorners() }
-                .onSuccess(::updateCornerTree)
-                .onFailure { showError("Kunne ikke finne hjørner", it) }
-        }
-    }
+
     private val featureDetector = JComboBox(FeatureDetectorType.entries.toTypedArray())
     private val showFeaturesButton = JButton("Detect features").apply {
         addActionListener {
@@ -278,12 +241,6 @@ class TemplateView(
                     add(showCellsButton)
                 })
                 add(JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
-                    add(showTextGroupsButton)
-                })
-                add(JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
-                    add(showHarrisButton)
-                })
-                add(JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
                     add(JLabel("Detector:"))
                     add(featureDetector)
                     add(showFeaturesButton)
@@ -298,7 +255,6 @@ class TemplateView(
             add(JScrollPane(contourTree), BorderLayout.CENTER)
             add(JTabbedPane().apply {
                 addTab("Grid", createGridControls())
-                addTab("Text groups", createTextGroupControls())
                 addTab("Regions", createRegionControls())
             }, BorderLayout.SOUTH)
         }
@@ -329,36 +285,6 @@ class TemplateView(
         canvas.gridSettings = template?.gridSettings ?: GridSettings()
         canvas.gridEdits = template?.gridEdits.orEmpty()
         if (canvas.image != null && canvas.gridEdits.isNotEmpty()) detectCells()
-        showTextArea()
-    }
-
-    private fun createTextGroupControls() = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = BorderFactory.createTitledBorder("Image pixels (0 = automatic)")
-        fun row(label: String, spinner: JSpinner, hint: String) {
-            spinner.toolTipText = hint
-            add(JPanel(BorderLayout(4, 0)).apply {
-                border = BorderFactory.createEmptyBorder(2, 4, 2, 4)
-                add(JLabel(label).apply { labelFor = spinner; toolTipText = hint }, BorderLayout.CENTER)
-                add(spinner, BorderLayout.EAST)
-            })
-        }
-        row("Horizontal gap:", textHorizontalGap, "Approximate gap to bridge. Increase to join words; decrease to separate them. 0 = automatic.")
-        row("Vertical gap:", textVerticalGap, "Approximate gap to bridge. Increase to join text lines into blocks. 0 = automatic.")
-        row("Min. group width:", textMinimumWidth, "Reject groups narrower than this many image pixels. 0 = automatic.")
-        row("Min. group height:", textMinimumHeight, "Reject groups shorter than this many image pixels. 0 = automatic.")
-        add(textRemoveLines)
-        row("Min. line length:", textMinimumLineLength, "Remove rules at least this long. Increase if text strokes disappear. 0 = automatic.")
-        add(JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-            add(button("Apply / detect") { detectTextGroups() })
-            add(button("Reset defaults") {
-                listOf(textHorizontalGap, textVerticalGap, textMinimumWidth, textMinimumHeight, textMinimumLineLength)
-                    .forEach { it.value = 0 }
-                textRemoveLines.isSelected = true
-                textMinimumLineLength.isEnabled = true
-                if (canvas.image != null) detectTextGroups()
-            })
-        })
     }
 
     private fun createRegionControls() = JPanel(GridLayout(0, 1, 0, 4)).apply {
@@ -400,86 +326,6 @@ class TemplateView(
             "text" -> "Dra området der den påkrevde teksten skal finnes. Esc avbryter."
             else -> "Dra et område som skal fjernes fra malbildet. Esc avbryter."
         }
-    }
-
-    /**
-     * The page's required text: pages are only aligned to this template page if they contain it. The check reads the
-     * page with OpenCV and Tesseract, a fraction of the time aligning takes.
-     */
-    private fun createRequiredTextControls() = JPanel(BorderLayout(0, 6)).apply {
-        border = BorderFactory.createEmptyBorder(6, 6, 6, 6)
-        add(JLabel("<html>A page is only aligned to this template page if this text is on it. " +
-            "Empty: every page is aligned.</html>").apply { preferredSize = Dimension(280, 34) }, BorderLayout.NORTH)
-        val editor = JPanel(BorderLayout(0, 6)).apply {
-            add(requiredText, BorderLayout.CENTER)
-            add(JPanel(GridLayout(1, 2, 4, 0)).apply {
-                add(button("Draw area") { startAreaAction("text") }.apply {
-                    toolTipText = "Drag the part of the page where the text is; only text boxes in it are read."
-                })
-                add(testTextButton)
-            }, BorderLayout.SOUTH)
-            minimumSize = preferredSize
-        }
-        add(JSplitPane(JSplitPane.VERTICAL_SPLIT, editor, JScrollPane(textTestResult).apply { minimumSize = Dimension(100, 40) }).apply {
-            resizeWeight = 0.6
-            border = BorderFactory.createEmptyBorder()
-        }, BorderLayout.CENTER)
-        requiredText.onChange = { showTextArea(); canvas.textBoxes = emptyList() }
-    }
-
-    private fun showTextArea() {
-        val image = canvas.image
-        canvas.textArea = if (image == null) null else requiredText.regionOrNull()?.pixels(image.width, image.height)
-    }
-
-    /** Reads the template image as a 400-DPI page and shows what the required-text check finds, off the EDT. */
-    private fun testRequiredText() {
-        if (!requireImage()) return
-        val requirement = try {
-            requiredText.requirement()
-        } catch (error: IllegalArgumentException) {
-            showError("Ugyldig tekstkrav", error)
-            return
-        }
-        if (requirement == null) {
-            textTestResult.text = "Type one or more words first."
-            return
-        }
-        val image = requireNotNull(canvas.image)
-        testTextButton.isEnabled = false
-        textTestResult.text = "Reading the image …"
-        object : SwingWorker<Pair<TextCheck, Double>, Unit>() {
-            override fun doInBackground(): Pair<TextCheck, Double> {
-                val page = PageText.of(image, PdfTemplateImages.DPI.toDouble())
-                return page.check(requirement) to image.width.toDouble() / page.image.width
-            }
-
-            override fun done() {
-                testTextButton.isEnabled = true
-                try {
-                    val (check, scale) = get()
-                    fun scaled(box: Rectangle) = Rectangle((box.x * scale).roundToInt(), (box.y * scale).roundToInt(),
-                        (box.width * scale).roundToInt(), (box.height * scale).roundToInt())
-                    val found = check.found.values.map { it.bounds }.toSet()
-                    canvas.textBoxes = check.read.map { scaled(it.bounds) to (it.bounds in found) }
-                    textTestResult.text = buildString {
-                        appendLine(if (check.passed) "✓ Pages like this one are aligned." else "✗ Pages like this one would NOT be aligned.")
-                        appendLine(check.summary)
-                        appendLine()
-                        appendLine("Text read, tallest first (orange boxes; words found are filled):")
-                        check.read.forEach { box ->
-                            val text = box.text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
-                            if (text.isNotEmpty()) appendLine("${if (box.bounds in found) "✓" else "·"} $text")
-                        }
-                    }
-                    textTestResult.caretPosition = 0
-                    status.text = if (check.passed) "Tekstkravet er oppfylt på malbildet." else "Tekstkravet er ikke oppfylt på malbildet."
-                } catch (error: Exception) {
-                    val cause = (error as? ExecutionException)?.cause ?: error
-                    textTestResult.text = "Could not read the image: ${cause.message}"
-                }
-            }
-        }.execute()
     }
 
     private fun selectedBox(): Rectangle? {
@@ -547,27 +393,6 @@ class TemplateView(
         canvas.replaceImageContent(clearTemplateAreas(source, removedAreas.flatten(), canvas.gridSettings, canvas.gridEdits))
         detectCells()
         status.text = "${removedAreas.sumOf { it.size }} områder tømt. Lagre mal for å lagre det redigerte bildet."
-    }
-
-    private fun detectTextGroups() {
-        if (!requireImage()) return
-        cancelSelection()
-        runCatching {
-            listOf(textHorizontalGap, textVerticalGap, textMinimumWidth, textMinimumHeight, textMinimumLineLength)
-                .forEach { it.commitEdit() }
-            val settings = TextGroupSettings(
-                horizontalGap = (textHorizontalGap.value as Number).toInt(),
-                verticalGap = (textVerticalGap.value as Number).toInt(),
-                minimumWidth = (textMinimumWidth.value as Number).toInt(),
-                minimumHeight = (textMinimumHeight.value as Number).toInt(),
-                removeLines = textRemoveLines.isSelected,
-                minimumLineLength = (textMinimumLineLength.value as Number).toInt(),
-            )
-            canvas.showTextGroups(settings)
-        }.onSuccess {
-            updateContourTree(it, RetreivalMode.RETR_EXTERNAL, "Text group")
-            status.text = "Fant ${it.size} tekstgrupper."
-        }.onFailure { showError("Kunne ikke finne tekstgrupper", it) }
     }
 
     private fun createGridControls() = JPanel().apply {
@@ -798,7 +623,6 @@ class TemplateView(
         add(JTabbedPane().apply {
             addTab("Fields", fieldSection)
             addTab("Global fields", createCatalogControls())
-            addTab("Required text", createRequiredTextControls())
             addTab("Reference points", listSection("Reference crops", referenceList,
                 button("New reference point") {
                     if (!requireImage()) return@button
@@ -815,14 +639,6 @@ class TemplateView(
                     }
                 }))
         }, constraints.apply { gridy = 2; weighty = 0.65 })
-    }
-
-    /** The required text as edited (its value may be null: no required text), or null after showing why it is invalid. */
-    private fun editedRequiredText(): Lazy<TextRequirement?>? = try {
-        lazyOf(requiredText.requirement())
-    } catch (error: Exception) {
-        showError("Ugyldig tekstkrav", error)
-        null
     }
 
     private fun listSection(title: String, list: JList<*>, vararg buttons: JButton) =
@@ -1016,7 +832,6 @@ class TemplateView(
         imageTitle.text = "${file.name} — ${image.width} × ${image.height} px"
         status.text = "Velg et felt, eller opprett et nytt felt og marker området i bildet."
         canvas.textBoxes = emptyList()
-        showTextArea()
         canvas.repaint()
     }
 
@@ -1059,14 +874,6 @@ class TemplateView(
         when (areaAction) {
             "reference" -> { saveReference(bounds); return }
             "remove" -> { removeArea(bounds); return }
-            "text" -> {
-                val image = canvas.image ?: return
-                cancelSelection()
-                runCatching { requiredText.setRegion(TextRegion.of(bounds, image.width, image.height)) }
-                    .onSuccess { status.text = "Den påkrevde teksten letes etter bare i det markerte området. Lagre mal for å beholde det." }
-                    .onFailure { showError("Ugyldig område", it) }
-                return
-            }
         }
         val index = fieldList.selectedIndex
         val previous = if (newFieldName == null && index >= 0) fields[index] else null
@@ -1157,7 +964,6 @@ class TemplateView(
             return
         }
         if (!requireImage()) return
-        val required = editedRequiredText() ?: return
         val updated = Template(
             navn = navn.text.trim(),
             beskrivelse = beskrivelse.text.trim(),
@@ -1165,7 +971,6 @@ class TemplateView(
             templateBilde = imagePath,
             gridSettings = canvas.gridSettings,
             gridEdits = canvas.gridEdits,
-            requiredText = required.value,
             referansepunkter = (0 until references.size()).map { references[it] },
         )
         val saveCallback = onSave
@@ -1308,20 +1113,6 @@ internal class TemplateImageCanvas(
         selectedCorner = null
         repaint()
         return cells
-    }
-
-    fun showHarrisCorners(): List<Point> = showPoints { findHarrisCorners(it) }
-
-    fun showTextGroups(settings: TextGroupSettings = TextGroupSettings()): List<ContourBox> {
-        val bufferedImage = requireNotNull(image) { "Importer et malbilde først." }
-        val groups = toMat(bufferedImage).use { findTextGroups(it, settings) }
-        displayingCells = false
-        countours = groups.map { it.bounds }
-        selectedContour = null
-        corners = emptyList()
-        selectedCorner = null
-        repaint()
-        return groups
     }
 
     fun showFeatures(type: FeatureDetectorType): List<Point> = showPoints { source -> findFeatures(source, type) }

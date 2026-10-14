@@ -239,20 +239,6 @@ class BucketTemplateTestView(
     private val scratchFolder = lazy { Files.createTempDirectory("bucket-template-test-").also { it.toFile().deleteOnExit() } }
     private val scratch: Path by scratchFolder
 
-    internal val isBusy: Boolean get() = listing != null || previewing || previewDelay.isRunning || downloading || creatingTemplate
-    internal val isRunning: Boolean get() = job != null
-    internal val fileTable: JTable get() = table
-    internal val outcomeRows: List<TemplateOutcome> get() = outcomes.rows
-    internal val resultImages: GuideImagePanel get() = images
-    internal val statusText: String get() = status.text
-    internal val summaryText: String get() = summary.text
-    internal val templatesText: String get() = templatesLabel.text
-    internal val detailsText: String get() = details.text
-    internal fun resultFor(name: String): PdfTestResult? = files.rows.firstOrNull { it.name == name }?.let { results[files.key(it)] }
-    /** Copies written besides the download folder. */
-    internal val scratchFiles: List<String> get() = if (scratchFolder.isInitialized()) scratch.toFile().list()?.toList().orEmpty() else emptyList()
-    internal val previewText: String get() = preview.messageText
-
     init {
         border = BorderFactory.createEmptyBorder(8, 8, 8, 8)
         preferredSize = Dimension(1650, 980)
@@ -400,7 +386,6 @@ class BucketTemplateTestView(
         columnModel.getColumn(OutcomeTableModel.TEXT).cellRenderer = object : DefaultTableCellRenderer() {
             override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component =
                 super.getTableCellRendererComponent(table, value, selected, focus, row, column).also {
-                    toolTipText = outcomes.rows.getOrNull(table.convertRowIndexToModel(row))?.result?.text?.summary
                     if (!selected) foreground = when (value?.toString()?.firstOrNull()) {
                         '✓' -> MATCH_COLOR
                         '✗' -> NO_MATCH_COLOR
@@ -408,7 +393,7 @@ class BucketTemplateTestView(
                     }
                 }
         }
-        listOf(60, 70, 200, 90, 110, 60, 60, 60).forEachIndexed { index, width -> columnModel.getColumn(index).preferredWidth = width }
+        listOf(60, 70, 200, 90, 60, 60, 60).forEachIndexed { index, width -> columnModel.getColumn(index).preferredWidth = width }
         selectionModel.addListSelectionListener {
             if (!it.valueIsAdjusting) {
                 showOutcome(selectedOutcome())
@@ -772,7 +757,6 @@ class BucketTemplateTestView(
             maxPoints = (maxPoints.value as Number).toInt(),
             model = alignment.selectedItem as AlignmentModel,
             minLineFit = (minLineFit.value as Number).toDouble() / 100,
-            checkText = checkText.isSelected,
         )
     } catch (error: Exception) {
         status.text = "Invalid test settings: ${error.message}"
@@ -891,13 +875,6 @@ class BucketTemplateTestView(
                 PageRole.NEXT -> "Tested as the next page of ${template.group}, which an earlier page started; only this template page was tried."
             })
             if (result.millis > 0) appendLine("Time: %.1f s".format(result.millis / 1000.0))
-            result.text?.let { text ->
-                appendLine("Required text: ${text.requirement.describe()} — " + when {
-                    text.error != null -> "could not be checked"
-                    text.passed -> "found"
-                    else -> "not found"
-                })
-            }
             result.agreement?.let {
                 appendLine("Agreeing matches: ${result.inliers} / ${result.matches} (%.0f %%; at least 40 %% needed)".format(100 * it))
             }
@@ -907,17 +884,10 @@ class BucketTemplateTestView(
             }
             result.transform?.let { appendLine("Page → template: ${summarize(it)}") }
             when {
-                outcome.rejectedByText -> appendLine("No picture: the page lacks the required text, so it was not aligned.")
                 image == null && result.status != BatchStatus.ERROR -> appendLine("No picture: after a run of several files, only the template " +
                     "page each page matched (or came closest to) keeps one. Test this file alone (\"Test selected\") to see them all.")
             }
             if (result.message.isNotEmpty()) { appendLine(); appendLine(result.message) }
-            result.text?.read?.takeIf { it.isNotEmpty() }?.let { read ->
-                appendLine()
-                appendLine("Text read (${read.size} box${if (read.size == 1) "" else "es"}, tallest first):")
-                read.forEach { box -> box.text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ").takeIf { it.isNotEmpty() }
-                    ?.let { appendLine("  ${if (result.text.found.values.any { found -> found.bounds == box.bounds }) "✓" else "·"} $it") } }
-            }
             shownResult?.settings?.let { appendLine(); appendLine("Settings: ${describeSettings(it)}") }
         }
         outcomeText.caretPosition = 0
@@ -1333,8 +1303,8 @@ private class OutcomeTableModel : AbstractTableModel() {
     override fun getColumnClass(column: Int): Class<*> = when (column) {
         0 -> Int::class.javaObjectType
         3 -> BatchStatus::class.java
-        5, 6 -> Double::class.javaObjectType
-        7 -> Long::class.javaObjectType
+        4, 5 -> Double::class.javaObjectType
+        6 -> Long::class.javaObjectType
         else -> String::class.java
     }
 
@@ -1345,16 +1315,15 @@ private class OutcomeTableModel : AbstractTableModel() {
             1 -> outcome.role.toString()
             2 -> outcome.template.label
             3 -> outcome.result.status
-            4 -> outcome.result.text?.shortText.orEmpty()
-            5 -> outcome.result.agreement
-            6 -> outcome.result.lineFit
+            4 -> outcome.result.agreement
+            5 -> outcome.result.lineFit
             else -> outcome.result.millis
         }
     }
 
     companion object {
         const val TEXT = 4
-        val COLUMNS = listOf("PDF page", "Tested as", "Template", "Result", "Required text", "Agree", "Lines", "Time")
+        val COLUMNS = listOf("PDF page", "Tested as", "Template", "Result", "Agree", "Lines", "Time")
     }
 }
 

@@ -71,26 +71,6 @@ class ImageUtilsTest {
         }
 
     @Test
-    fun `Harris detector finds separated corners of a rectangle`() {
-        val image = BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB)
-        val graphics = image.createGraphics()
-        try {
-            graphics.color = Color.WHITE
-            graphics.fillRect(0, 0, image.width, image.height)
-            graphics.color = Color.BLACK
-            graphics.drawRect(12, 12, 39, 39)
-        } finally {
-            graphics.dispose()
-        }
-
-        val corners = findHarrisCorners(toMat(image))
-        for ((x, y) in listOf(12 to 12, 51 to 12, 12 to 51, 51 to 51)) {
-            assertEquals(true, corners.any { kotlin.math.abs(it.x - x) <= 3 && kotlin.math.abs(it.y - y) <= 3 },
-                "Missing corner near ($x, $y)")
-        }
-    }
-
-    @Test
     fun `finds cells enclosed by faint lines without treating text as a cell`() {
         val image = BufferedImage(100, 80, BufferedImage.TYPE_INT_ARGB)
         val graphics = image.createGraphics()

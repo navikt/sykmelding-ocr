@@ -33,24 +33,15 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.imageio.ImageIO
 import kotlin.math.roundToInt
 
-/**
- * Settings for matching a PDF page against a template, shared by the bucket tester and template pipeline.
- */
 internal data class BatchSettings(
     val detector: FeatureDetectorKind = FeatureDetectorKind.AKAZE,
     val maxPoints: Int = 20_000,
     val model: AlignmentModel = AlignmentModel.HOMOGRAPHY,
     val minLineFit: Double = DEFAULT_MIN_LINE_FIT,
-    val checkText: Boolean = true,
 ) {
     val features: FeatureSettings get() = FeatureSettings(detector, maxPoints = maxPoints)
 }
 
-/**
- * A matching page must also line up with the template's form: at least this share of the template's ruled lines must
- * have a line on the aligned page within [LINE_TOLERANCE] pixels. Feature matching alone can agree on a wrong
- * transform, e.g. on another page of the same form, where the header and footer match but the table does not.
- */
 internal const val DEFAULT_MIN_LINE_FIT = 0.6
 
 /** About 0.4 mm at 400 DPI. */
@@ -79,7 +70,6 @@ internal data class PageOutcome(
  * One file's outcome. [page] is the page shown in [preview]: the matching page, or else the page that came closest.
  * [preview] is a PNG: when [aligned], the aligned page (black) with the template's ink in red on top, [previewScale] ×
  * template pixels; otherwise the page at 400 DPI, [previewScale] × its pixels. [outcomes] lists every tested page.
- * [text] is the required-text check of [page], when the template has required text.
  */
 internal class BatchResult(
     val file: File,
@@ -95,7 +85,6 @@ internal class BatchResult(
     val outcomes: List<PageOutcome> = emptyList(),
     val lineFit: Double? = null,
     val aligned: Boolean = false,
-    val text: TextCheck? = null,
 ) {
     val agreement: Double? get() = if (matches > 0) inliers.toDouble() / matches else null
 
@@ -155,12 +144,10 @@ internal fun pageCount(file: File): Int = if (file.extension.equals("pdf", true)
  * has its features detected and is read for its required text once.
  */
 internal fun testTemplatePage(template: Template, reference: BufferedImage, file: File, page: Int, settings: BatchSettings,
-                              pages: DocumentPages, cache: TemplateCache? = null, texts: DocumentText? = null): BatchResult {
+                              pages: DocumentPages, cache: TemplateCache? = null): BatchResult {
     val started = System.nanoTime()
     fun elapsed() = (System.nanoTime() - started) / 1_000_000
-    val required = template.requiredText?.takeIf { settings.checkText && it.hasWords() }
-    val documentText = if (required == null) null else texts ?: DocumentText(file)
-    val tested = testPage(template, reference, page, settings, pages, cache, required?.let { documentText?.check(page, it) })
+    val tested = testPage(template, reference, page, settings, pages, cache)
     return BatchResult(
         file = file,
         status = tested.outcome.status,
@@ -175,24 +162,21 @@ internal fun testTemplatePage(template: Template, reference: BufferedImage, file
         outcomes = listOf(tested.outcome),
         lineFit = tested.outcome.lineFit,
         aligned = tested.aligned,
-        text = tested.text,
     )
 }
 
 private class PageTest(val outcome: PageOutcome, val transform: DoubleArray? = null, val preview: ByteArray? = null,
-                       val previewScale: Double = 1.0, val aligned: Boolean = false, val text: TextCheck? = null)
+                       val previewScale: Double = 1.0, val aligned: Boolean = false)
 
 /** Aligns [page] to the template, unless [text] says it lacks the template's required text. */
 private fun testPage(template: Template, reference: BufferedImage, page: Int, settings: BatchSettings, pages: DocumentPages,
-                     cache: TemplateCache?, text: TextCheck?): PageTest = try {
-    if (text != null && text.rejects) {
-        PageTest(PageOutcome(page, BatchStatus.NO_MATCH, text.summary), text = text)
-    } else alignPage(template, reference, pages.get(page), page, settings, cache).let {
-        if (text == null) it else PageTest(it.outcome.copy(message = "${it.outcome.message}\n${text.summary}"), it.transform, it.preview,
-            it.previewScale, it.aligned, text)
+                     cache: TemplateCache?): PageTest = try {
+    alignPage(template, reference, pages.get(page), page, settings, cache).let {
+       PageTest(it.outcome.copy(message = "${it.outcome.message}}"), it.transform, it.preview,
+            it.previewScale, it.aligned)
     }
 } catch (error: Exception) {
-    PageTest(PageOutcome(page, BatchStatus.ERROR, error.message ?: error.toString()), text = text)
+    PageTest(PageOutcome(page, BatchStatus.ERROR, error.message ?: error.toString()))
 }
 
 private fun alignPage(template: Template, reference: BufferedImage, prepared: PreparedPage, page: Int, settings: BatchSettings,
@@ -209,7 +193,6 @@ private fun alignPage(template: Template, reference: BufferedImage, prepared: Pr
     checkAligned(session, reference, settings, cache, page)
 }
 
-/** Warps the matched page onto the template and checks that the form lines lie on it. */
 private fun checkAligned(session: TemplateTestSession, reference: BufferedImage, settings: BatchSettings, cache: TemplateCache?, page: Int): PageTest {
     val inspection = requireNotNull(session.inspection)
     session.align()

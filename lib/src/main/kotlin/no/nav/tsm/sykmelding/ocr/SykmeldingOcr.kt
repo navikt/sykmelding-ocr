@@ -45,6 +45,8 @@ enum class PSM_MODE(val value: Int) {
     PSM_SPARSE_TEXT_OSD(12)
 }
 
+
+
 class Ocr {
 
     internal object TessData {
@@ -135,6 +137,7 @@ class Ocr {
          return tesseract.doOCR(subImage)
      }*/
 }
+
 
 
 // TODO(this is just ideas)

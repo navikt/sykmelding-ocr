@@ -12,8 +12,6 @@ data class Template(
     val templateBilde: String,
     val gridSettings: GridSettings = GridSettings(),
     val gridEdits: List<GridEdit> = emptyList(),
-    /** Text a page must contain before it is aligned to this page; null = always align. */
-    val requiredText: TextRequirement? = null,
     val referansepunkter: List<String> = emptyList(),
     )
 
