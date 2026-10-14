@@ -16,7 +16,7 @@ import javax.imageio.ImageTypeSpecifier
 import javax.imageio.metadata.IIOMetadataNode
 import kotlin.math.roundToInt
 
-internal object PdfTemplateImages {
+object PdfTemplateImages {
     const val DPI = 400
 
     fun pageCount(file: File): Int = Loader.loadPDF(file).use { document ->

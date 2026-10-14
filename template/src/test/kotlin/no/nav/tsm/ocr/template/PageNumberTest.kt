@@ -1,7 +1,7 @@
 package no.nav.tsm.ocr.template
 
-import no.nav.tsm.ocr.template.view.PageNumber
-import no.nav.tsm.ocr.template.view.parsePageNumber
+import no.nav.tsm.sykmelding.template.PageNumber
+import no.nav.tsm.sykmelding.template.parsePageNumber
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

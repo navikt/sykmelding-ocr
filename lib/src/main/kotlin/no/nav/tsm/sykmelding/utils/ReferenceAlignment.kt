@@ -1,19 +1,19 @@
-package no.nav.tsm.ocr.template.view
+package no.nav.tsm.sykmelding.utils
 
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
 
-internal data class ImagePoint(val x: Double, val y: Double) {
+data class ImagePoint(val x: Double, val y: Double) {
     fun distance(other: ImagePoint) = hypot(x - other.x, y - other.y)
 }
 
-internal data class ReferencePair(val template: ImagePoint, val incoming: ImagePoint)
+data class ReferencePair(val template: ImagePoint, val incoming: ImagePoint)
 
-internal data class FieldRegion(val field: Felter, val corners: List<ImagePoint>)
+data class FieldRegion(val field: Felter, val corners: List<ImagePoint>)
 
-internal data class FieldTransform(
+data class FieldTransform(
     val a: Double,
     val b: Double,
     val tx: Double,
@@ -31,14 +31,15 @@ internal data class FieldTransform(
     ).map(::map))
 }
 
-internal data class ReferenceAlignment(
+data class ReferenceAlignment(
     val transform: FieldTransform,
     val inliers: Int,
+
     val pairs: Int,
     val affine: Boolean,
 )
 
-internal fun estimateReferenceAlignment(
+fun estimateReferenceAlignment(
     pairs: List<ReferencePair>,
     width: Int,
     height: Int,

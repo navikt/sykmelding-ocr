@@ -1,10 +1,10 @@
-package no.nav.tsm.ocr.template.view
+package no.nav.tsm.sykmelding.template
 
-internal data class PageNumber(val page: Int, val total: Int)
+data class PageNumber(val page: Int, val total: Int)
 
 private val pageNumberPattern = Regex("""(?U)\bside\s*(\d+)\s*av\s*(\d+)\b""", RegexOption.IGNORE_CASE)
 
-internal fun parsePageNumber(text: String): PageNumber {
+fun parsePageNumber(text: String): PageNumber {
     val matches = pageNumberPattern.findAll(text).map { match ->
         val page = requireNotNull(match.groupValues[1].toIntOrNull()) { "Page number is too large." }
         val total = requireNotNull(match.groupValues[2].toIntOrNull()) { "Page count is too large." }

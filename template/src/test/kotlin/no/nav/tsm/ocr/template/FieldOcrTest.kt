@@ -1,7 +1,7 @@
 package no.nav.tsm.ocr.template
 
-import no.nav.tsm.ocr.template.view.FieldTransform
-import no.nav.tsm.ocr.template.view.cropAlignedField
+import no.nav.tsm.sykmelding.utils.FieldTransform
+import no.nav.tsm.sykmelding.utils.cropAlignedField
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import java.awt.Color
 import java.awt.geom.AffineTransform

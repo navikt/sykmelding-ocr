@@ -2,6 +2,8 @@ package no.nav.tsm.ocr.template.view
 
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import no.nav.tsm.sykmelding.ocr.ReferencesRectangle
+import no.nav.tsm.sykmelding.utils.FieldRegion
+import no.nav.tsm.sykmelding.utils.FieldTransform
 import org.bytedeco.javacpp.PointerScope
 import org.bytedeco.javacpp.indexer.IntIndexer
 import org.bytedeco.opencv.global.opencv_core.*

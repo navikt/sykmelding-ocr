@@ -2,7 +2,7 @@ package no.nav.tsm.ocr.template
 
 import no.nav.tsm.ocr.template.view.ImageComparisonView
 import no.nav.tsm.ocr.template.view.ImagePanel
-import no.nav.tsm.ocr.template.view.FieldTransform
+import no.nav.tsm.sykmelding.utils.FieldTransform
 import no.nav.tsm.sykmelding.ocr.ReferencesRectangle
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import org.example.no.nav.tsm.ocr.template.template.Template

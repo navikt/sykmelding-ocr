@@ -29,7 +29,7 @@ object TemplateFiles {
         writeJson(file, stored)
     }
 
-    internal fun relocatePath(path: String, from: File, to: File): String {
+    fun relocatePath(path: String, from: File, to: File): String {
         if (path.isBlank()) return path
         val source = File(path).absoluteFile.toPath().normalize()
         val oldDirectory = from.absoluteFile.toPath().normalize()

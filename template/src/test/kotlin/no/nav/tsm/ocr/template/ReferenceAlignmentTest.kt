@@ -1,9 +1,9 @@
 package no.nav.tsm.ocr.template
 
-import no.nav.tsm.ocr.template.view.ImagePoint
-import no.nav.tsm.ocr.template.view.ReferencePair
-import no.nav.tsm.ocr.template.view.FieldTransform
-import no.nav.tsm.ocr.template.view.estimateReferenceAlignment
+import no.nav.tsm.sykmelding.utils.ImagePoint
+import no.nav.tsm.sykmelding.utils.ReferencePair
+import no.nav.tsm.sykmelding.utils.FieldTransform
+import no.nav.tsm.sykmelding.utils.estimateReferenceAlignment
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import kotlin.math.cos
 import kotlin.math.sin

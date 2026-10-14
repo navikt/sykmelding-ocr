@@ -7,6 +7,12 @@ import no.nav.tsm.sykmelding.ocr.Ocr
 import no.nav.tsm.sykmelding.ocr.PSM_MODE
 import no.nav.tsm.sykmelding.ocr.ReferencesRectangle
 import no.nav.tsm.sykmelding.ocr.SykmeldingOcr
+import no.nav.tsm.sykmelding.template.parsePageNumber
+import no.nav.tsm.sykmelding.utils.ImagePoint
+import no.nav.tsm.sykmelding.utils.ReferenceAlignment
+import no.nav.tsm.sykmelding.utils.ReferencePair
+import no.nav.tsm.sykmelding.utils.cropAlignedField
+import no.nav.tsm.sykmelding.utils.estimateReferenceAlignment
 import org.bytedeco.javacpp.PointerScope
 import java.awt.BorderLayout
 import java.awt.Component
