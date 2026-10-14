@@ -59,7 +59,7 @@ class ImagePanel() : JPanel() {
         orbImage = null
         lineOverlay = null
         gridOverlays.clear()
-        fields = emptyList()
+        this.fields = emptyList()
         selectedField = -1
         references = emptyList()
         selectedReference = -1

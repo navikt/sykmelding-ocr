@@ -16,23 +16,32 @@ object TemplateFiles {
         val directory = file.absoluteFile.parentFile
         fun resolve(path: String): String =
             if (path.isBlank()) path else directory.resolve(path).normalize().absolutePath
-        return template.copy(
-            templateBilde = resolve(template.templateBilde),
-            referansepunkter = template.referansepunkter.map(::resolve),
-        )
+        return template.copy(templateBilde = resolve(template.templateBilde),
+            referansepunkter = template.referansepunkter.map(::resolve))
     }
 
     fun write(file: File, template: Template) {
-        val destination = file.absoluteFile.toPath().normalize()
-        val directory = destination.parent.toFile()
+        val directory = file.absoluteFile.toPath().normalize().parent.toFile()
         fun relative(path: String): String =
             if (path.isBlank()) path else File(path).absoluteFile.normalize().toRelativeString(directory)
-        val stored = template.copy(
-            templateBilde = relative(template.templateBilde),
-            referansepunkter = template.referansepunkter.map(::relative),
-        )
+        val stored = template.copy(templateBilde = relative(template.templateBilde),
+            referansepunkter = template.referansepunkter.map(::relative))
+        writeJson(file, stored)
+    }
+
+    internal fun relocatePath(path: String, from: File, to: File): String {
+        if (path.isBlank()) return path
+        val source = File(path).absoluteFile.toPath().normalize()
+        val oldDirectory = from.absoluteFile.toPath().normalize()
+        return if (source.startsWith(oldDirectory)) {
+            to.absoluteFile.toPath().normalize().resolve(oldDirectory.relativize(source)).toString()
+        } else path
+    }
+
+    internal fun writeJson(file: File, value: Any) {
+        val destination = file.absoluteFile.toPath().normalize()
         // Serialize first and replace only after writing succeeds, preserving an existing template on failure.
-        val json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(stored)
+        val json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value)
         val temporary = Files.createTempFile(destination.parent, ".template-", ".json")
         try {
             Files.writeString(temporary, json)

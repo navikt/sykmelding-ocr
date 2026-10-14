@@ -175,7 +175,7 @@ class ConfigurationOverlayTest {
         val reference = directory.resolve("reference.png")
         ImageIO.write(image(), "png", reference)
         return directory.resolve("mal.json").also {
-            TemplateFiles.write(it, Template("Test template", emptyList(), "Description", fields, reference.absolutePath))
+            TemplateFiles.write(it, Template("Test template", "Description", fields, reference.absolutePath))
         }
     }
 

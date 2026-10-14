@@ -1,35 +1,37 @@
 package no.nav.tsm.ocr.template.view
 
-import org.example.no.nav.tsm.ocr.template.view.TemplateView
+import no.nav.tsm.ocr.template.gcp.BucketTemplateTestView
+import no.nav.tsm.ocr.template.gcp.GcpBucketView
 import org.example.no.nav.tsm.ocr.template.template.Template
 import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
 import java.awt.BorderLayout
 import java.awt.Dimension
-import java.awt.event.ActionEvent
-import java.awt.event.ActionListener
-import java.awt.image.BufferedImage
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import java.io.File
-import javax.imageio.ImageIO
 import javax.swing.*
 import javax.swing.filechooser.FileNameExtensionFilter
 
+private data class PageEditor(val window: JFrame, val view: TemplateView, var file: File)
+
 class MainView : JFrame() {
-    private val status = JLabel("Open a reference image and a second image.")
-    val comparisonView = ImageComparisonView { status.text = it }
-    var currentFile: String? = null
-    private val newTemplateMenuItem = JMenuItem("New template item")
+    private val pageEditors = mutableMapOf<File, MutableList<PageEditor>>()
+    private val libraryView = TemplateLibraryView(onPageDeleted = { file ->
+        pageEditors.remove(file.absoluteFile.normalize())?.toList()?.forEach { it.window.dispose() }
+    }, onPageRenumbered = { previous, destination ->
+        val editors = pageEditors.remove(previous.absoluteFile.normalize()).orEmpty()
+        editors.forEach {
+            it.view.relocateTemplateFile(destination)
+            it.file = destination
+            if (it.window.title == previous.parentFile.name) it.window.title = destination.parentFile.name
+        }
+        if (editors.isNotEmpty()) pageEditors.getOrPut(destination.absoluteFile.normalize()) { mutableListOf() }.addAll(editors)
+    }) { file -> openTemplateFile(file) }
+    private val newTemplateMenuItem = JMenuItem("Add template page")
     private val openSavedTemplateMenuItem = JMenuItem("Open template…")
-    private val openTemplateMenuItem = JMenuItem("Open template image")
-    private val openSecondItem = JMenuItem("Open test image")
+    private var bucketTestWindow: JFrame? = null
 
     init {
-        val config = File("config.txt")
-
-        if(config.exists() && config.readText().isNotEmpty()) {
-            val file = File(config.readText())
-            if (file.isFile) {
-                runCatching { readImage(file) }.onSuccess { comparisonView.loadReference(it) }
-            } }
         createUI()
     }
 
@@ -38,38 +40,63 @@ class MainView : JFrame() {
         setSize(1500, 900)
         minimumSize = Dimension(1100, 750)
         jMenuBar = createMenuBar()
-        add(comparisonView, BorderLayout.CENTER)
-        add(status, BorderLayout.SOUTH)
+        libraryView.addToolbarComponent(JSeparator(SwingConstants.VERTICAL).apply { preferredSize = Dimension(8, 22) })
+        libraryView.addToolbarComponent(JButton("Test bucket PDFs…").apply {
+            toolTipText = "List the PDFs in the GCP bucket, view them, and test their pages against every page of every template."
+            addActionListener { openBucketTest() }
+        })
+        libraryView.addToolbarComponent(JButton("Compare image…").apply {
+            toolTipText = "Open the image comparison view with the selected template page."
+            addActionListener { openImageComparison() }
+        })
+        add(libraryView, BorderLayout.CENTER)
     }
 
-    private fun openImage(selectedFile: File) {
-        comparisonView.loadReference(readImage(selectedFile))
-        currentFile = selectedFile.path
-        File("config.txt").writeText(selectedFile.path)
-    }
-
-    private fun readImage(file: File): BufferedImage =
-        requireNotNull(ImageIO.read(file)) { "Unsupported or unreadable image: ${file.name}" }
-
-    private fun chooseImage(second: Boolean) {
-        val chooser = JFileChooser(".")
-        chooser.dialogTitle = if (second) "Open second image" else "Open first image (reference)"
-        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return
+    private fun openImageComparison() {
+        val file = libraryView.selectedPageFile() ?: run {
+            JOptionPane.showMessageDialog(this, "Select a template page first.", "Compare image", JOptionPane.INFORMATION_MESSAGE)
+            return
+        }
+        val view = ImageComparisonView()
         try {
-            if (second) {
-                comparisonView.loadSecond(readImage(chooser.selectedFile))
-            } else {
-                openImage(chooser.selectedFile)
-            }
+            view.loadConfiguration(file)
         } catch (e: Exception) {
-            JOptionPane.showMessageDialog(this, e.message, "Could not open image", JOptionPane.ERROR_MESSAGE)
+            JOptionPane.showMessageDialog(this, e.message, "Could not load template", JOptionPane.ERROR_MESSAGE)
+            return
+        }
+        JFrame("Compare: ${file.parentFile.name}").apply {
+            defaultCloseOperation = JFrame.DISPOSE_ON_CLOSE
+            add(view, BorderLayout.CENTER)
+            setSize(1400, 900)
+            setLocationRelativeTo(this@MainView)
+            isVisible = true
         }
     }
 
-    private fun openTemplateEditor(template: Template? = null, file: File? = null) {
-        JFrame(template?.navn ?: "Ny mal").apply {
+    /** One window at a time: it holds the template features detected for earlier tests. */
+    private fun openBucketTest() {
+        bucketTestWindow?.takeIf { it.isDisplayable }?.let { it.toFront(); it.requestFocus(); return }
+        bucketTestWindow = BucketTemplateTestView.open(this) { pages, openInEditor ->
+            libraryView.refresh(pages.firstOrNull())
+            if (openInEditor) pages.forEach(::openTemplateFile)
+        }
+    }
+
+    private fun openTemplateEditor(template: Template, file: File) {
+        JFrame(template.navn).apply {
+            val view = TemplateView(template, templateFile = file)
+            val editor = PageEditor(this, view, file)
+            pageEditors.getOrPut(file.absoluteFile.normalize()) { mutableListOf() }.add(editor)
             defaultCloseOperation = JFrame.DISPOSE_ON_CLOSE
-            add(TemplateView(template, templateFile = file), BorderLayout.CENTER)
+            add(view, BorderLayout.CENTER)
+            addWindowListener(object : WindowAdapter() {
+                override fun windowClosed(e: WindowEvent) {
+                    val key = editor.file.absoluteFile.normalize()
+                    pageEditors[key]?.remove(editor)
+                    if (pageEditors[key]?.isEmpty() == true) pageEditors.remove(key)
+                    libraryView.refresh(editor.file)
+                }
+            })
             pack()
             setLocationRelativeTo(this@MainView)
             isVisible = true
@@ -77,29 +104,24 @@ class MainView : JFrame() {
     }
 
     private fun chooseTemplate() {
-        val chooser = JFileChooser(".").apply {
+        val chooser = JFileChooser("./templates").apply {
             dialogTitle = "Åpne mal"
             fileFilter = FileNameExtensionFilter("Mal (JSON)", "json")
         }
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return
-        try {
-            val file = chooser.selectedFile
-            openTemplateEditor(TemplateFiles.read(file), file)
-        } catch (e: Exception) {
-            JOptionPane.showMessageDialog(this, e.message, "Kunne ikke åpne malen", JOptionPane.ERROR_MESSAGE)
+        val file = chooser.selectedFile
+        if (file.name == "mal.json" && file.parentFile.parentFile?.canonicalFile == File("templates").canonicalFile) {
+            libraryView.refresh(file)
+        } else {
+            openTemplateFile(file)
         }
     }
 
-    private fun chooseConfiguration() {
-        val chooser = JFileChooser(".").apply {
-            dialogTitle = "Load configuration"
-            fileFilter = FileNameExtensionFilter("Template configuration (JSON)", "json")
-        }
-        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return
+    private fun openTemplateFile(file: File) {
         try {
-            currentFile = comparisonView.loadConfiguration(chooser.selectedFile).templateBilde
+            openTemplateEditor(TemplateFiles.read(file), file)
         } catch (e: Exception) {
-            JOptionPane.showMessageDialog(this, e.message, "Could not load configuration", JOptionPane.ERROR_MESSAGE)
+            JOptionPane.showMessageDialog(this, e.message, "Kunne ikke åpne malen", JOptionPane.ERROR_MESSAGE)
         }
     }
 
@@ -107,58 +129,36 @@ class MainView : JFrame() {
         val menuBar = JMenuBar()
 
         val fileMenu = JMenu("File")
-        val viewMenu = JMenu("View")
-        val viewORB = JCheckBoxMenuItem("show orbs").apply {
-            addActionListener {
-                comparisonView.showOrbs(isSelected)
-            }
-        }
-        val viewLines = JCheckBoxMenuItem("Lines").apply {
-            addActionListener {
-                comparisonView.showLines(isSelected)
-            }
-        }
-        val newItem = JMenuItem("New")
+        val newItem = JMenuItem("New template")
         val exitItem = JMenuItem("Exit")
 
-        newItem.addActionListener {  }
-        newTemplateMenuItem.addActionListener { openTemplateEditor() }
+        newItem.addActionListener { libraryView.createTemplate() }
+        newTemplateMenuItem.addActionListener { libraryView.createPage() }
         openSavedTemplateMenuItem.addActionListener { chooseTemplate() }
-        openTemplateMenuItem.addActionListener { chooseImage(false) }
-        openSecondItem.addActionListener { chooseImage(true) }
-
-
-
-        exitItem.addActionListener(ActionListener { e: ActionEvent? -> System.exit(0) })
+        exitItem.addActionListener { System.exit(0) }
 
         fileMenu.add(newItem)
         fileMenu.add(newTemplateMenuItem)
-        fileMenu.add(openSavedTemplateMenuItem)
-        fileMenu.add(JMenuItem("Load configuration…").apply {
-            addActionListener { chooseConfiguration() }
+        fileMenu.add(JMenuItem("Import template page").apply {
+            addActionListener { libraryView.choosePageImport() }
         })
-        fileMenu.add(openTemplateMenuItem)
-        fileMenu.add(openSecondItem)
+        fileMenu.add(JMenuItem("Delete template page").apply {
+            addActionListener { libraryView.deleteSelectedPage() }
+        })
+        fileMenu.add(JMenuItem("Change page number").apply {
+            addActionListener { libraryView.changeSelectedPageNumber() }
+        })
+        fileMenu.add(openSavedTemplateMenuItem)
+        fileMenu.addSeparator()
+        fileMenu.add(JMenuItem("Browse GCP bucket…").apply {
+            addActionListener { GcpBucketView.open(this@MainView) }
+        })
+        fileMenu.add(JMenuItem("Test bucket PDFs against templates…").apply {
+            addActionListener { openBucketTest() }
+        })
         fileMenu.addSeparator()
         fileMenu.add(exitItem)
-        viewMenu.add(viewORB)
-        viewMenu.add(viewLines)
-        viewMenu.add(JMenu("Grids").apply {
-            val modes = ButtonGroup()
-            add(JRadioButtonMenuItem("Off", true).apply {
-                modes.add(this)
-                addActionListener { comparisonView.showGrids(null) }
-            })
-            for (mode in GridMode.entries) {
-                add(JRadioButtonMenuItem(mode.label).apply {
-                    modes.add(this)
-                    toolTipText = mode.description
-                    addActionListener { comparisonView.showGrids(mode) }
-                })
-            }
-        })
         menuBar.add(fileMenu)
-        menuBar.add(viewMenu)
         return menuBar
     }
 }

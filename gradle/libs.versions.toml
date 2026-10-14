@@ -8,7 +8,8 @@ junit-jupiter-engine = "6.0.1"
 tesseract-version = "5.5.3-1.5.14"
 opencv-version = "1.5.14"
 jackson = "3.2.2"
-
+google-cloud-storage = "2.75.0"
+pdfbox = "3.0.8"
 
 [libraries]
 commons-math3 = { module = "org.apache.commons:commons-math3", version.ref = "commons-math3" }
@@ -18,6 +19,8 @@ junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", vers
 bytedeco-tesseract = { module = "org.bytedeco:tesseract", version.ref = "tesseract-version" }
 bytedeco-tesseract-platform = { module = "org.bytedeco:tesseract-platform", version.ref = "tesseract-version" }
 bytedeco-javacv = { module = "org.bytedeco:javacv-platform", version.ref = "opencv-version" }
+google-cloud-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "google-cloud-storage" }
+pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox"}
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version = "2.4.0" }

@@ -263,6 +263,13 @@ class ImageComparisonView(
         })
     }
 
+    /** As clicking "Apply reference images"; false when that button is disabled (no reference images, or images missing or busy). */
+    internal fun applyReferenceImages(): Boolean {
+        if (!applyReferencesButton.isEnabled) return false
+        applyReferences()
+        return true
+    }
+
     fun resetSecondImage() {
         cancelResize()
         clearIncomingMatches()
@@ -516,6 +523,8 @@ class ImageComparisonView(
                             ImagePoint(to.x + to.width / 2.0, to.y + to.height / 2.0),
                         )
                     }
+                    val notFound = incomingMatches.count { it == null }
+                    val missing = if (notFound == 0) "" else " $notFound of ${incomingMatches.size} reference image(s) not found on the incoming page."
                     try {
                         alignment = estimateReferenceAlignment(pairs, template.width, template.height)
                         val result = requireNotNull(alignment)
@@ -525,10 +534,10 @@ class ImageComparisonView(
                             " Only three supporting pairs: affine alignment cannot be independently checked."
                         else ""
                         onStatus("Reference alignment ready — ${result.inliers}/${result.pairs} consistent pairs." +
-                            " ${if (result.affine) "Affine" else "Uniform-scale"} alignment.$warning Apply configuration to display adjusted fields.")
+                            " ${if (result.affine) "Affine" else "Uniform-scale"} alignment.$warning$missing Apply configuration to display adjusted fields.")
                     } catch (e: IllegalArgumentException) {
                         alignmentError = e.message ?: "Reference alignment failed."
-                        onStatus("Cannot align fields: $alignmentError No incoming field boxes displayed.")
+                        onStatus("Cannot align fields: $alignmentError$missing No incoming field boxes displayed.")
                     }
                     refreshReferences()
                 } catch (e: ExecutionException) {
@@ -587,9 +596,9 @@ class ImageComparisonView(
         require(search.width <= image.width && search.height <= image.height) {
             "A reference image (${search.width} × ${search.height} px) is larger than the document."
         }
-        // The library's first rectangle describes the matched crop; the second describes the full image.
+        // The library's first rectangle is where the crop was found, possibly scaled; none when it is not on the page.
         findReferences(bgrCopy(image), bgrCopy(search)).firstOrNull()?.also {
-            require(it.x >= 0 && it.y >= 0 && it.width == search.width && it.height == search.height &&
+            require(it.x >= 0 && it.y >= 0 && it.width > 0 && it.height > 0 &&
                 it.x.toLong() + it.width <= image.width && it.y.toLong() + it.height <= image.height) {
                 "Reference matching returned an invalid rectangle."
             }
@@ -758,7 +767,8 @@ class ImageComparisonView(
         secondPanel.showReferences(incomingMatches, index)
         referenceDetails.text = if (index < 0) "Select a reference image to locate it on the template." else {
             fun describe(match: ReferencesRectangle?) = match?.let {
-                "x: ${it.x} px, y: ${it.y} px\nWidth: ${it.width} px, Height: ${it.height} px"
+                "x: ${it.x} px, y: ${it.y} px\nWidth: ${it.width} px, Height: ${it.height} px" +
+                    (it.confidence?.let { score -> "\nCorrelation: %.2f at %.0f %% size".format(score, 100 * it.scale) } ?: "")
             } ?: "No match displayed."
             "${references[index].name}\n\nTemplate: ${describe(templateMatches.getOrNull(index))}\n\n" +
                 "Incoming: ${describe(incomingMatches.getOrNull(index))}"

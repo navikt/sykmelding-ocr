@@ -3,7 +3,6 @@ package no.nav.tsm.ocr.template
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import org.example.no.nav.tsm.ocr.template.template.Template
 import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
-import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,11 +10,11 @@ import kotlin.test.assertFails
 import kotlin.test.assertFalse
 
 class TemplateFilesTest {
-    @TempDir
+    @org.junit.jupiter.api.io.TempDir
     lateinit var directory: File
 
     private fun template() = Template(
-        "Norsk mal – æøå", listOf(File(directory, "navlogo.png").absolutePath), "En beskrivelse",
+        "Norsk mal – æøå", "En beskrivelse",
         listOf(Felter(50, 20, 100, 60, "Fornavn", "name")),
         File(directory, "malbilde.png").absolutePath,
     )
@@ -32,27 +31,31 @@ class TemplateFilesTest {
     }
 
     @Test
-    fun `asset paths resolve relative to template location after moving`() {
-        val file = File(directory, "mal.json")
-        TemplateFiles.write(file, template())
-        assertFalse(file.readText().contains(directory.absolutePath))
-        val movedDirectory = File(directory, "moved").apply { mkdir() }
-        val moved = file.copyTo(File(movedDirectory, "mal.json"))
-        val loaded = TemplateFiles.read(moved)
-        assertEquals(File(movedDirectory, "malbilde.png").absolutePath, loaded.templateBilde)
-        assertEquals(listOf(File(movedDirectory, "navlogo.png").absolutePath), loaded.referansepunkter)
-    }
-
-    @Test
-    fun `existing absolute asset paths are accepted`() {
-        val file = File(directory, "mal.json")
-        file.writeText("""
-            {"navn":"Mal","beskrivelse":"","felter":[],
-             "referansepunkter":["/images/navlogo.png"],"templateBilde":"/images/mal.png"}
-        """.trimIndent())
+    fun `legacy reference points are retained while freehand masks are dropped on save`() {
+        val file = File(directory, "legacy.json")
+        file.writeText(
+            """{"navn":"Mal","beskrivelse":"","felter":[],"templateBilde":"/images/mal.png",
+                "referansepunkter":["/images/navlogo.png"],"masks":[{"x":1,"y":2,"bredde":3,"hoyde":4}]}"""
+        )
         val loaded = TemplateFiles.read(file)
         assertEquals("/images/mal.png", loaded.templateBilde)
         assertEquals(listOf("/images/navlogo.png"), loaded.referansepunkter)
+        TemplateFiles.write(file, loaded)
+        assertEquals(loaded, TemplateFiles.read(file))
+        assertFalse(file.readText().contains("masks"))
+    }
+
+    @Test
+    fun `image and reference paths survive save reopen and moving a page folder`() {
+        val file = File(directory, "mal.json")
+        val original = template().copy(referansepunkter = listOf(File(directory, "reference.png").absolutePath))
+        TemplateFiles.write(file, original)
+        assertEquals(original, TemplateFiles.read(file))
+        assertFalse(file.readText().contains(directory.absolutePath))
+        val moved = File(directory, "moved").apply { mkdir() }
+        val loaded = TemplateFiles.read(file.copyTo(File(moved, file.name)))
+        assertEquals(File(moved, "malbilde.png").absolutePath, loaded.templateBilde)
+        assertEquals(listOf(File(moved, "reference.png").absolutePath), loaded.referansepunkter)
     }
 
     @Test

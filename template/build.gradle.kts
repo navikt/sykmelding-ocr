@@ -14,6 +14,8 @@ repositories {
 dependencies {
     implementation(libs.jackson.module.kotlin)
     implementation(libs.bytedeco.javacv)
+    implementation(libs.pdfbox)
+    implementation(libs.google.cloud.storage)
     implementation(project(":lib"))
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation(libs.junit.jupiter.engine)
