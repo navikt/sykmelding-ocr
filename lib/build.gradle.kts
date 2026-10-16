@@ -37,6 +37,10 @@ dependencies {
     implementation(libs.bytedeco.javacv)
     // This dependency is used internally, and not exposed to consumers on their own compile classpath.
     implementation(libs.guava)
+
+    implementation(libs.logback.classic)
+    implementation(libs.logback.encoder)
+
     implementation(libs.jackson.module.kotlin)
 }
 

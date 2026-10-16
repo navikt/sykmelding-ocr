@@ -72,13 +72,14 @@ class LoadedTemplate(
     }
 }
 
+/** Matches PDFs to [templates], by default every template in [library]. */
 class TemplateMatcher(
-    private val library: TemplateLibrary = TemplateLibrary(File("../templates")),
+    library: TemplateLibrary = TemplateLibrary(File("../templates")),
     private val maxPages: Int = DEFAULT_MAX_PAGES,
+    private val templates: List<TemplateGroup> = library.list(),
 ) : AutoCloseable {
     private val objectMapper = jacksonObjectMapper()
     private val akaze = AKAZE.create()
-    private val templates: List<TemplateGroup> = library.list()
     private val loaded: Map<TemplateGroup, List<LoadedTemplate>> = templates.associateWith { group -> group.pageFiles.map { load(it)} }
 
     fun matchPdf(pdf: File): TemplateMatchResult = try {

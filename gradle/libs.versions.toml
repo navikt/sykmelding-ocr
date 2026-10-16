@@ -10,6 +10,8 @@ opencv-version = "1.5.14"
 jackson = "3.2.2"
 google-cloud-storage = "2.75.0"
 pdfbox = "3.0.8"
+logback = "1.6.5"
+logbackEncoder = "9.0"
 
 [libraries]
 commons-math3 = { module = "org.apache.commons:commons-math3", version.ref = "commons-math3" }
@@ -21,6 +23,12 @@ bytedeco-tesseract-platform = { module = "org.bytedeco:tesseract-platform", vers
 bytedeco-javacv = { module = "org.bytedeco:javacv-platform", version.ref = "opencv-version" }
 google-cloud-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "google-cloud-storage" }
 pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox"}
+# Monitoring and observability
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+logback-encoder = { module = "net.logstash.logback:logstash-logback-encoder", version.ref = "logbackEncoder" }
+
+
+
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version = "2.4.0" }

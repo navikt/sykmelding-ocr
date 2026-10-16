@@ -1,18 +1,9 @@
 package no.nav.tsm.ocr.template.gcp
 
-import no.nav.tsm.ocr.template.testing.AlignmentModel
-import no.nav.tsm.ocr.template.testing.BatchSettings
-import no.nav.tsm.ocr.template.testing.BatchStatus
-import no.nav.tsm.ocr.template.testing.DEFAULT_MIN_LINE_FIT
 import no.nav.tsm.ocr.template.testing.DEFAULT_PARALLEL
-import no.nav.tsm.ocr.template.testing.FeatureDetectorKind
-import no.nav.tsm.ocr.template.testing.FeatureSettings
 import no.nav.tsm.ocr.template.testing.GuideImagePanel
 import no.nav.tsm.ocr.template.testing.GuidePane
-import no.nav.tsm.ocr.template.testing.LINE_TOLERANCE
 import no.nav.tsm.ocr.template.testing.previewBoxes
-import no.nav.tsm.ocr.template.testing.summarize
-import no.nav.tsm.sykmelding.template.TemplateMatchResult
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import org.example.no.nav.tsm.ocr.template.template.TemplateGroup
 import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
@@ -28,18 +19,14 @@ import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
-import java.awt.image.BufferedImage
 import java.io.File
 import java.nio.file.Files
-import java.nio.file.Path
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.time.Instant
 import java.util.concurrent.ExecutionException
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.prefs.Preferences
-import javax.imageio.ImageIO
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.JButton
@@ -113,34 +100,16 @@ class BucketTemplateTestView(
     private val resultFilter = JComboBox(ShowFilter.entries.toTypedArray()).apply { toolTipText = "Show files by their test result" }
     private val count = JLabel(" ")
 
-    // Test settings, as in "Test against many".
-    private val detector = JComboBox(FeatureDetectorKind.entries.filter { it.ownDescriptor != null }.toTypedArray()).apply {
-        selectedItem = FeatureDetectorKind.AKAZE
-        toolTipText = "AKAZE separates matching and other forms most clearly; ORB is several times faster."
-    }
-    private val maxPoints = JSpinner(SpinnerNumberModel(20_000, 0, 1_000_000, 1000)).apply {
-        toolTipText = "Keep the strongest points per page; 0 = all."
-    }
-    private val alignment = JComboBox(AlignmentModel.entries.toTypedArray()).apply { selectedItem = AlignmentModel.HOMOGRAPHY }
-    private val minLineFit = JSpinner(SpinnerNumberModel((100 * DEFAULT_MIN_LINE_FIT).toInt(), 0, 100, 5)).apply {
-        toolTipText = "A matching page must also line up with the form: at least this share of the template's ruled lines " +
-            "must lie on the aligned page (within $LINE_TOLERANCE px). 0 = off."
-    }
+    // Running tests: matching is lib's TemplateMatcher, as in production, so there is nothing to tune.
     private val parallel = JSpinner(SpinnerNumberModel(DEFAULT_PARALLEL, 1, Runtime.getRuntime().availableProcessors(), 1)).apply {
-        toolTipText = "At most this many page × template tests run at the same time across all files. Files are tested " +
-            "in parallel; AKAZE already uses several cores per test, and each running test needs several hundred MB of memory."
+        toolTipText = "At most this many files are matched at the same time. AKAZE already uses several cores per page, " +
+            "and each file being matched needs several hundred MB of memory."
     }
-    private val checkText = JCheckBox("Check required text first", true).apply {
-        toolTipText = "<html>Template pages can require text, e.g. «sykmelding» (set it in the template editor).<br>" +
-            "A page is read with OpenCV + Tesseract first, and only aligned (AKAZE) to template pages whose text it has.<br>" +
-            "Untick to align every page to every template page.</html>"
-    }
-
-    // Running tests.
     private val testSelected = JButton("Test selected").apply {
-        toolTipText = "<html>Match the pages of the selected files to template pages:<br>" +
-            "a page is tried against each template's first page, in library order, until one matches (else the next page is tried);<br>" +
-            "the pages after it are then tested against that template's page 2, 3, … only.</html>"
+        toolTipText = "<html>Match the selected files with lib's TemplateMatcher, the matcher production runs:<br>" +
+            "a file matches a template when every page of the template is found among the file's pages<br>" +
+            "(AKAZE features, GMS, RANSAC homography, then the form lines must line up).<br>" +
+            "The fields of a matched file are then read from the aligned pages with lib's OCR, as production does.</html>"
         addActionListener { testSelection() }
     }
     private val runCount = JSpinner(SpinnerNumberModel((settings?.getInt(RUN_COUNT, 10) ?: 10).coerceIn(1, MAX_RUN), 1, MAX_RUN, 1)).apply {
@@ -236,20 +205,14 @@ class BucketTemplateTestView(
 
     private var job: SwingWorker<List<String>, Unit>? = null
     @Volatile private var stopRequested = false
-    /** Template features from the last run, reused while the library and settings are unchanged. Only the run thread
+    /** The matcher from the last run, reused while the library is unchanged; see [matcherFor]. Only the run thread
      * changes it while a run is going; otherwise only the EDT. */
-    @Volatile private var prepared: PreparedTemplates? = null
-    /** lib's [TemplateMatcher], what production runs, with the library fingerprint it was built for; see [matcherFor]. */
-    @Volatile private var production: Pair<List<String>, TemplateMatcher>? = null
+    @Volatile private var prepared: PreparedMatcher? = null
     private var runKeys: List<String> = emptyList()
     private var runStarted = 0L
     private var runEnded = 0L
     private var runStopped = false
     private val clock = Timer(1000) { updateSummary() }
-
-    /** Owner-only (see [Files.createTempDirectory]) folder for copies the pipeline needs under another name; removed when the JVM exits. */
-    private val scratchFolder = lazy { Files.createTempDirectory("bucket-template-test-").also { it.toFile().deleteOnExit() } }
-    private val scratch: Path by scratchFolder
 
     init {
         border = BorderFactory.createEmptyBorder(8, 8, 8, 8)
@@ -261,11 +224,8 @@ class BucketTemplateTestView(
             add(flowRow(JLabel("Bucket:"), bucket, JLabel("Prefix:"), prefix, loadButton, showDownloads, showTestPdfs, stopListing, Box.createHorizontalStrut(18),
                 downloadFolder))
             add(flowRow(JLabel("Filter:"), filter, pdfOnly, JLabel("Show:"), resultFilter, count))
-            add(flowRow(JLabel("Detector:"), detector, JLabel("max points:"), maxPoints, JLabel("Alignment:"), alignment,
-                JLabel("Min. form lines on page (%):"), minLineFit, JLabel("Parallel tests:"), parallel))
-            add(flowRow(checkText))
             add(flowRow(testSelected, Box.createHorizontalStrut(18), JLabel("Test"), runCount, JLabel("of the shown files"), order,
-                untestedOnly, run, stop))
+                untestedOnly, run, stop, Box.createHorizontalStrut(18), JLabel("Parallel files:"), parallel))
             add(flowRow(templatesLabel, chooseTemplates, reloadTemplates, Box.createHorizontalStrut(18), summary))
         }, BorderLayout.NORTH)
 
@@ -338,21 +298,7 @@ class BucketTemplateTestView(
             }
         }
         columnModel.getColumn(FileColumns.NAME).cellRenderer = fullTextRenderer
-        columnModel.getColumn(FileColumns.BEST).cellRenderer = fullTextRenderer
-        columnModel.getColumn(FileColumns.PRODUCTION).cellRenderer = object : DefaultTableCellRenderer() {
-            override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component {
-                val result = files.resultAt(table.convertRowIndexToModel(row))
-                return super.getTableCellRendererComponent(table, value, selected, focus, row, column).also {
-                    toolTipText = "What lib's TemplateMatcher (production) decides about the file" +
-                        (result?.production?.text?.let { ": $it" } ?: "") + (if (result?.agreesWithProduction == false) " — differs from Result" else "")
-                    if (!selected) foreground = when (result?.production?.matched) {
-                        true -> MATCH_COLOR
-                        false -> NO_MATCH_COLOR
-                        null -> Color.GRAY
-                    }
-                }
-            }
-        }
+        columnModel.getColumn(FileColumns.TEMPLATE).cellRenderer = fullTextRenderer
         columnModel.getColumn(FileColumns.RESULT).cellRenderer = object : DefaultTableCellRenderer() {
             override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component {
                 val result = files.resultAt(table.convertRowIndexToModel(row))
@@ -361,7 +307,7 @@ class BucketTemplateTestView(
                 }
             }
         }
-        listOf(300 to 120, 70 to 60, 140 to 130, 45 to 40, 110 to 90, 150 to 90, 260 to 100, 60 to 50).forEachIndexed { index, (preferred, minimum) ->
+        listOf(300 to 120, 70 to 60, 140 to 130, 45 to 40, 110 to 90, 260 to 100, 60 to 50).forEachIndexed { index, (preferred, minimum) ->
             columnModel.getColumn(index).apply { preferredWidth = preferred; minWidth = minimum }
         }
         selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) selectionChanged() }
@@ -382,8 +328,7 @@ class BucketTemplateTestView(
                 addActionListener {
                     copy { file ->
                         results[files.key(file)]?.takeIf { it.status.finished }?.let { result ->
-                            listOf(file.name, result.pages?.toString().orEmpty(), result.status.name, result.production?.text.orEmpty(),
-                                result.templatesPerPage).joinToString("\t")
+                            listOf(file.name, result.pages?.toString().orEmpty(), result.status.name, result.templateText).joinToString("\t")
                         }
                     }
                 }
@@ -394,33 +339,7 @@ class BucketTemplateTestView(
     private fun setupOutcomeTable() = with(outcomeTable) {
         selectionModel.selectionMode = ListSelectionModel.SINGLE_SELECTION
         fillsViewportHeight = true
-        setDefaultRenderer(BatchStatus::class.java, object : DefaultTableCellRenderer() {
-            override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component =
-                super.getTableCellRendererComponent(table, value, selected, focus, row, column).also {
-                    if (!selected) foreground = when (value) {
-                        BatchStatus.MATCH -> MATCH_COLOR
-                        BatchStatus.NO_MATCH -> NO_MATCH_COLOR
-                        BatchStatus.ERROR -> ERROR_COLOR
-                        else -> Color.GRAY
-                    }
-                }
-        })
-        setDefaultRenderer(Double::class.javaObjectType, object : DefaultTableCellRenderer() {
-            init { horizontalAlignment = RIGHT }
-            override fun setValue(value: Any?) { text = (value as? Double)?.let { "%.0f %%".format(100 * it) }.orEmpty() }
-        })
-        setDefaultRenderer(Long::class.javaObjectType, secondsRenderer())
-        columnModel.getColumn(OutcomeTableModel.TEXT).cellRenderer = object : DefaultTableCellRenderer() {
-            override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component =
-                super.getTableCellRendererComponent(table, value, selected, focus, row, column).also {
-                    if (!selected) foreground = when (value?.toString()?.firstOrNull()) {
-                        '✓' -> MATCH_COLOR
-                        '✗' -> NO_MATCH_COLOR
-                        else -> Color.GRAY
-                    }
-                }
-        }
-        listOf(60, 70, 200, 90, 60, 60, 60).forEachIndexed { index, width -> columnModel.getColumn(index).preferredWidth = width }
+        listOf(200, 200).forEachIndexed { index, width -> columnModel.getColumn(index).preferredWidth = width }
         selectionModel.addListSelectionListener {
             if (!it.valueIsAdjusting) {
                 showOutcome(selectedOutcome())
@@ -591,7 +510,7 @@ class BucketTemplateTestView(
     private fun testSelection() {
         val selected = table.selectedRows.map { files.rows[table.convertRowIndexToModel(it)] }
         if (selected.isEmpty()) { status.text = "Select one or more files to test."; return }
-        if (startRun(selected, keepAllPreviews = selected.size == 1) && selected.size == 1) tabs.selectedIndex = RESULT_TAB
+        if (startRun(selected) && selected.size == 1) tabs.selectedIndex = RESULT_TAB
     }
 
     /** Tests the next [runCount] shown files that can be tested, in list order or at random. */
@@ -605,30 +524,34 @@ class BucketTemplateTestView(
         }
         settings?.putInt(RUN_COUNT, wanted)
         val shownFiles = (0 until table.rowCount).map { files.rows[table.convertRowIndexToModel(it)] }
-        val testable = shownFiles.filter { it.isPdf || it.extension in IMAGE_SUFFIXES }
+        val testable = shownFiles.filter { it.isPdf }
         val candidates = testable.filter { !untestedOnly.isSelected || results[files.key(it)]?.status?.finished != true }
         val chosen = (if (order.selectedItem == RunOrder.RANDOM) candidates.shuffled() else candidates).take(wanted)
         if (chosen.isEmpty()) {
             status.text = when {
                 shownFiles.isEmpty() -> "No files are shown. Press Load, or change the filter."
-                testable.isEmpty() -> "None of the shown files is a PDF or an image."
+                testable.isEmpty() -> "None of the shown files is a PDF."
                 else -> "All shown files are tested already. Untick \"Untested only\" to test them again."
             }
             return
         }
-        startRun(chosen, keepAllPreviews = chosen.size == 1)
+        startRun(chosen)
     }
 
     /**
-     * Tests [chosen] concurrently; the shared pool limits page × template tests across all files to [parallel]. The template
-     * features are detected once and reused by later runs while the library and the settings are unchanged. With
-     * [keepAllPreviews], every outcome keeps its preview; otherwise only the template page each page matched (or came closest to) does.
+     * Matches [chosen] with lib's TemplateMatcher, up to [parallel] files at a time. The matcher (which detects the
+     * features of every template page when created) is reused by later runs while the library is unchanged.
      */
-    private fun startRun(chosen: List<BucketFile>, keepAllPreviews: Boolean): Boolean {
+    private fun startRun(chosen: List<BucketFile>): Boolean {
         if (job != null || closed || chosen.isEmpty()) return false
         val current = source ?: return false
-        val batch = readSettings() ?: return false
-        val threads = (parallel.value as Number).toInt()
+        val threads = try {
+            parallel.commitEdit()
+            (parallel.value as Number).toInt()
+        } catch (error: Exception) {
+            status.text = "Invalid number of parallel files: ${error.message}"
+            return false
+        }
         val keys = chosen.map { resultKey(current.bucket, it) }
         val previous = keys.associateWith { results[it] }
         keys.forEach { setResult(it, PdfTestResult(PdfStatus.QUEUED)) }
@@ -642,11 +565,9 @@ class BucketTemplateTestView(
 
         val worker = object : SwingWorker<List<String>, Unit>() {
             override fun doInBackground(): List<String> {
-                val pool = Executors.newFixedThreadPool(threads) { task -> Thread(task, "bucket-template-test").apply { isDaemon = true } }
                 val fileWorkers = Executors.newFixedThreadPool(threads) { task -> Thread(task, "bucket-template-file").apply { isDaemon = true } }
                 try {
-                    val templates = templatesFor(batch.features, pool, ::say)
-                    val matcher = matcherFor(::say)
+                    val (matcher, problems) = matcherFor(::say)
                     for ((index, file) in chosen.withIndex()) {
                         val key = keys[index]
                         fileWorkers.submit {
@@ -656,37 +577,23 @@ class BucketTemplateTestView(
                             // The file is kept in use while it is tested, so "Clear downloads" leaves it alone.
                             val result = try {
                                 downloadCache.using(current, file) { cached ->
-                                    withTestableFile(file, cached) { local ->
-                                        val tested = testAgainstTemplates(local, templates, batch, pool, { stopRequested || closed }) { done, total ->
-                                            post(key, PdfTestResult(PdfStatus.RUNNING, done = done, total = total))
-                                        }
-                                        // Then what production decides about the same file, for comparison.
-                                        if (tested == null || stopRequested || closed) tested else {
-                                            post(key, PdfTestResult(PdfStatus.RUNNING, "Production matcher …"))
-                                            tested.withProduction(productionVerdict(matcher, file, local))
-                                        }
+                                    if (!file.isPdf) PdfTestResult(PdfStatus.ERROR, "Not a PDF: the matcher takes PDFs only.") else {
+                                        post(key, PdfTestResult(PdfStatus.RUNNING, "Matching …"))
+                                        testAgainstTemplates(cached, matcher) { post(key, PdfTestResult(PdfStatus.RUNNING, "Reading fields (OCR) …")) }
                                     }
                                 }
                             } catch (error: Exception) {
-                                PdfTestResult(PdfStatus.ERROR, "Could not download the file: " + describeGcpError(error).replace("\n", " — "),
-                                    settings = batch)
+                                PdfTestResult(PdfStatus.ERROR, "Could not download the file: " + describeGcpError(error).replace("\n", " — "))
                             }
-                            // A file stopped part-way keeps its earlier result.
-                            post(key, when {
-                                result == null -> previous[key]
-                                keepAllPreviews || result.status == PdfStatus.ERROR -> result
-                                else -> result.compact()
-                            })
+                            post(key, result)
                         }
                     }
                     fileWorkers.shutdown()
                     fileWorkers.awaitTermination(1, TimeUnit.DAYS)
-                    return templates.problems
+                    return problems
                 } finally {
                     fileWorkers.shutdownNow()
                     fileWorkers.awaitTermination(1, TimeUnit.DAYS)
-                    pool.shutdown()
-                    pool.awaitTermination(1, TimeUnit.DAYS)
                 }
             }
 
@@ -721,52 +628,25 @@ class BucketTemplateTestView(
         return true
     }
 
-    /** On the run thread: the library as it is now, with features from an earlier run when nothing changed. */
-    private fun templatesFor(features: FeatureSettings, pool: ExecutorService, say: (String) -> Unit): PreparedTemplates {
+    /**
+     * On the run thread: lib's [TemplateMatcher] for the chosen templates as they are now, kept from an earlier run
+     * when none of them changed, with the library's problems (pages it cannot test). Creating the matcher detects the
+     * features of every template page; it throws when a template cannot be read, which fails the run.
+     */
+    private fun matcherFor(say: (String) -> Unit): Pair<PreparedMatcher, List<String>> {
         val pages = loadTemplates()
         SwingUtilities.invokeLater { if (!closed) showTemplates(pages) }
-        prepared?.let { if (it.matches(pages, features)) return it }
+        prepared?.let { if (it.fingerprint == pages.fingerprint) return it to pages.problems }
         closePrepared()
-        say("Preparing ${pages.pages.size} template page${plural(pages.pages.size)}: reading the images and detecting their features once …")
-        return prepareTemplates(pages, features, pool) { done, total -> say("Preparing templates: $done of $total …") }.also { prepared = it }
+        say("Preparing the matcher: detecting the features of ${pages.pages.size} template page${plural(pages.pages.size)} once …")
+        val chosen = chosenTemplates
+        val groups = templateGroups().filter { chosen == null || it.file.parentFile.name in chosen }
+        return PreparedMatcher(pages.fingerprint, TemplateMatcher(library, templates = groups)).also { prepared = it } to pages.problems
     }
 
     private fun closePrepared() {
         prepared?.close()
         prepared = null
-        production?.second?.close()
-        production = null
-    }
-
-    /**
-     * On the run thread: lib's [TemplateMatcher] for the whole library as it is now (it ignores "Choose templates"),
-     * kept from an earlier run when no template changed. Creating it detects the features of every template page.
-     */
-    private fun matcherFor(say: (String) -> Unit): Result<TemplateMatcher> {
-        val fingerprint = LibraryPages.load(library).fingerprint
-        production?.let { (built, matcher) -> if (built == fingerprint) return Result.success(matcher) }
-        production?.second?.close()
-        production = null
-        say("Preparing the production matcher (lib TemplateMatcher): detecting the features of every template page …")
-        return runCatching { TemplateMatcher(library) }.onSuccess { production = fingerprint to it }
-    }
-
-    /** What production's matcher makes of the file, in a few words. One file at a time: the matcher is not made for parallel use. */
-    private fun productionVerdict(matcher: Result<TemplateMatcher>, file: BucketFile, local: File): ProductionVerdict {
-        if (!file.isPdf) return ProductionVerdict("– not a PDF", null)
-        val found = matcher.getOrElse { return ProductionVerdict("Error: could not create the matcher — ${it.message ?: it}", null) }
-        val started = System.nanoTime()
-        val result = synchronized(found) { found.matchPdf(local) }
-        val seconds = "%.1f s".format((System.nanoTime() - started) / 1e9)
-        return when (result) {
-            is TemplateMatchResult.Matched -> {
-                val pages = result.templateMatch.size
-                ProductionVerdict("✓ ${result.template.manifest.navn} ($pages page${plural(pages)}, $seconds)", true)
-            }
-            TemplateMatchResult.NoMatch -> ProductionVerdict("✗ No match ($seconds)", false)
-            is TemplateMatchResult.Error -> ProductionVerdict("Error: ${result.exception.message ?: result.exception}", null)
-            is TemplateMatchResult.TooManyPages -> ProductionVerdict("– ${result.pages} pages; the matcher takes at most ${result.maxPages}", null)
-        }
     }
 
     private fun requestStop() {
@@ -832,19 +712,6 @@ class BucketTemplateTestView(
             .joinToString("<br>") + "</html>"
     }
 
-    internal fun readSettings(): BatchSettings? = try {
-        maxPoints.commitEdit(); minLineFit.commitEdit(); parallel.commitEdit()
-        BatchSettings(
-            detector = detector.selectedItem as FeatureDetectorKind,
-            maxPoints = (maxPoints.value as Number).toInt(),
-            model = alignment.selectedItem as AlignmentModel,
-            minLineFit = (minLineFit.value as Number).toDouble() / 100,
-        )
-    } catch (error: Exception) {
-        status.text = "Invalid test settings: ${error.message}"
-        null
-    }
-
     /** On the EDT: stores (or with null, forgets) a file's result and refreshes what shows it. */
     private fun setResult(key: String, result: PdfTestResult?) {
         if (result == null) results.remove(key) else results[key] = result
@@ -882,7 +749,7 @@ class BucketTemplateTestView(
         details.caretPosition = 0
     }
 
-    /** The "Test result" tab: every page × template outcome of the shown file, the best of page 1 selected. */
+    /** The "Test result" tab: the template pages found in the shown file, the first selected. */
     private fun showResult() {
         val file = shown
         val result = file?.let { results[files.key(it)] }
@@ -892,10 +759,10 @@ class BucketTemplateTestView(
         resultTitle.text = when {
             file == null -> " "
             result == null -> "${file.fileName} — not tested"
-            result.status.finished && result.pageResults.isNotEmpty() -> "${file.fileName} — ${result.statusText}: ${result.templatesPerPage}"
+            result.outcomes.isNotEmpty() -> "${file.fileName} — ${result.statusText}: ${result.templateText}"
             else -> "${file.fileName} — ${result.statusText}"
         }
-        outcomes.reset(result?.pageResults?.flatMap { it.outcomes }.orEmpty())
+        outcomes.reset(result?.outcomes.orEmpty())
         if (outcomes.rowCount > 0) outcomeTable.setRowSelectionInterval(0, 0) else showOutcome(null)
     }
 
@@ -912,17 +779,21 @@ class BucketTemplateTestView(
         compare.open(page, templateFor(file, page))
     }
 
+    /**
+     * The Compare tab with the template page, and the PDF page in the same position: the matcher does not say which
+     * PDF page it aligned, and a matched file usually has the template's pages in order.
+     */
     private fun compareOutcome(outcome: TemplateOutcome) {
         shown?.let { comparedPreview = it.name to previewPage() }
-        compare.open(outcome.page, outcome.template.file)
+        compare.open(outcome.template.position, outcome.template.file)
         tabs.selectedIndex = COMPARE_TAB
     }
 
     private fun previewPage(): Int = if (preview.currentPageCount > 0) preview.currentPage + 1 else 1
 
-    /** The template page [page] of [file] matched in the last test, or else came closest to; null when untested. */
+    /** Page [page] of the template [file] matched in the last test; null when untested or unmatched (see [compareOutcome]). */
     private fun templateFor(file: BucketFile, page: Int): File? =
-        results[files.key(file)]?.pageResults?.firstOrNull { it.page == page }?.outcomes?.firstOrNull()?.template?.file
+        results[files.key(file)]?.outcomes?.firstOrNull { it.template.position == page }?.template?.file
 
     private fun showOutcome(outcome: TemplateOutcome?) {
         if (outcome == null) {
@@ -930,47 +801,30 @@ class BucketTemplateTestView(
             val result = shownResult
             outcomeText.text = when {
                 shown == null -> "Select a file in the list."
-                result == null -> "Not tested yet. Click \"Test selected\" to test every page against every template page."
+                result == null -> "Not tested yet. Click \"Test selected\" to match the file with the production matcher."
                 else -> result.summary()
             }
             outcomeText.caretPosition = 0
             return
         }
-        val result = outcome.result
-        val image = result.previewImage()
+        val image = outcome.previewImage()
         val template = outcome.template
-        val fields = previewBoxes(template.template.felter.map { Rectangle(it.x, it.y, it.bredde, it.hoyde) }, result.previewScale)
-        val lines = result.lineFit?.let { " Form lines on page: %.0f %%.".format(100 * it) }.orEmpty()
-        images.panes = when {
-            image == null -> emptyList()
-            result.status == BatchStatus.MATCH -> listOf(GuidePane(
-                "PDF page ${outcome.page} aligned to ${template.label} (black), template on top (red); green = fields.$lines", image, fields))
-            result.aligned -> listOf(GuidePane(
-                "PDF page ${outcome.page} aligned to ${template.label}, but the form lines do not line up — not a match.$lines", image, fields))
-            else -> listOf(GuidePane("PDF page ${outcome.page} at 400 DPI — did not match ${template.label}", image))
-        }
-        val minimum = shownResult?.settings?.minLineFit ?: DEFAULT_MIN_LINE_FIT
+        val fields = previewBoxes(template.template.felter.map { Rectangle(it.x, it.y, it.bredde, it.hoyde) }, outcome.previewScale)
+        images.panes = if (image == null) emptyList() else listOf(GuidePane(
+            "The PDF page aligned to ${template.label} (black), template on top (red); green = fields.", image, fields))
         outcomeText.text = buildString {
-            appendLine("${result.status}  PDF page ${outcome.page} → ${template.label}")
-            appendLine(when (outcome.role) {
-                PageRole.START -> "Tested as a first page: each template's first page is tried, in library order, until one matches."
-                PageRole.NEXT -> "Tested as the next page of ${template.group}, which an earlier page started; only this template page was tried."
-            })
-            if (result.millis > 0) appendLine("Time: %.1f s".format(result.millis / 1000.0))
-            result.agreement?.let {
-                appendLine("Agreeing matches: ${result.inliers} / ${result.matches} (%.0f %%; at least 40 %% needed)".format(100 * it))
+            appendLine("✓ ${template.label} — page ${template.position} of ${template.templateSize}")
+            appendLine("The matcher found this template page in the file and aligned the PDF page to it (gray, at the template image's size). " +
+                "That aligned page is what the fields are read from, so the green boxes show where OCR looks.")
+            if (image == null) appendLine("No picture: the template image could not be read.")
+            shownResult?.takeIf { it.millis > 0 }?.let { appendLine("Time for the whole file: %.1f s".format(it.millis / 1000.0)) }
+            val fields = shownResult?.ocr?.getOrNull(outcomes.rows.indexOf(outcome))
+            appendLine()
+            if (fields == null) appendLine(shownResult?.message?.ifEmpty { null } ?: "Fields: not read.")
+            else {
+                appendLine("Fields read from the aligned page with lib's OCR (${fields.size}):")
+                append(fieldLines(fields))
             }
-            result.lineFit?.let {
-                appendLine("Form lines on page: %.0f %% of the template's lines within %d px (at least %.0f %% needed)"
-                    .format(100 * it, LINE_TOLERANCE, 100 * minimum))
-            }
-            result.transform?.let { appendLine("Page → template: ${summarize(it)}") }
-            when {
-                image == null && result.status != BatchStatus.ERROR -> appendLine("No picture: after a run of several files, only the template " +
-                    "page each page matched (or came closest to) keeps one. Test this file alone (\"Test selected\") to see them all.")
-            }
-            if (result.message.isNotEmpty()) { appendLine(); appendLine(result.message) }
-            shownResult?.settings?.let { appendLine(); appendLine("Settings: ${describeSettings(it)}") }
         }
         outcomeText.caretPosition = 0
     }
@@ -983,17 +837,6 @@ class BucketTemplateTestView(
         val file = shown ?: run { status.text = "Select a file first."; return }
         val cached = source?.let { downloadCache.cachedFile(it.bucket, file) }
         if (cached == null) status.text = "${file.fileName} is not downloaded yet." else downloadFolder.reveal(cached)
-    }
-
-    /**
-     * Runs [use] with [cached] itself when its name tells the pipeline what it is (".pdf", or an image's extension),
-     * and else with a copy under the right name that is deleted afterwards.
-     */
-    private fun <T> withTestableFile(file: BucketFile, cached: File, use: (File) -> T): T {
-        val head = cached.inputStream().use { it.readNBytes(1024) }
-        val suffix = suffixFor(file, head)
-        return if (suffix.isEmpty() || cached.name.endsWith(suffix, ignoreCase = true)) use(cached)
-            else withScratchFile(file, cached.readBytes(), use)
     }
 
     /** Saves the previewed file, exactly as stored in the bucket, where [chooseDownloadTarget] says. */
@@ -1087,15 +930,15 @@ class BucketTemplateTestView(
     }
 
     private fun askAndCreateTemplate(file: BucketFile, bytes: ByteArray, pageCount: Int) {
-        val tested = results[files.key(file)]?.takeIf { it.status.finished && it.pageResults.isNotEmpty() }
+        // Which PDF page is which template page is not known; a matched file is assumed to have the template's pages in order.
+        val tested = results[files.key(file)]?.takeIf { it.status == PdfStatus.MATCHED || it.status == PdfStatus.NO_MATCH }
+        val matchedPages = tested?.outcomes?.associate { it.template.position to "✓ ${it.template.label}" }.orEmpty()
         val input = TemplateDialogInput(
             fileName = file.fileName,
             pdf = bytes,
             pageCount = pageCount,
-            pageNotes = tested?.pageResults?.associate { page ->
-                page.page to (page.match?.let { "✓ ${it.template.label}" } ?: if (page.skipped != null) "not tested" else "✗ no template")
-            }.orEmpty(),
-            unmatchedPages = tested?.pageResults?.filter { it.match == null }?.map { it.page }?.toSet(),
+            pageNotes = if (tested == null) emptyMap() else (1..pageCount).associateWith { matchedPages[it] ?: "✗ no template" },
+            unmatchedPages = tested?.let { (1..pageCount).filter { it !in matchedPages }.toSet() },
             groups = templateGroups(),
             canOpenEditor = onTemplateCreated != null,
         )
@@ -1143,24 +986,6 @@ class BucketTemplateTestView(
         library.directory.listFiles()?.filter { it.isDirectory && it.resolve("mal.json").isFile }?.sortedBy { it.name }
             ?.mapNotNull { runCatching { library.read(it.resolve("mal.json")) }.getOrNull() }.orEmpty()
 
-    /** Writes [bytes] to the scratch folder only while [use] runs. */
-    private fun <T> withScratchFile(file: BucketFile, bytes: ByteArray, use: (File) -> T): T {
-        val temporary = Files.createTempFile(scratch, "test-", suffixFor(file, bytes))
-        try {
-            Files.write(temporary, bytes)
-            return use(temporary.toFile())
-        } finally {
-            Files.deleteIfExists(temporary)
-        }
-    }
-
-    /** The pipeline tells PDFs from images by the file extension. */
-    private fun suffixFor(file: BucketFile, bytes: ByteArray): String = when {
-        PreviewContent.isPdf(bytes) -> ".pdf"
-        file.extension.isNotEmpty() -> ".${file.extension}"
-        else -> ""
-    }
-
     private fun copy(value: (BucketFile) -> String?) {
         val text = table.selectedRows.toList().mapNotNull { value(files.rows[table.convertRowIndexToModel(it)]) }.joinToString("\n")
         if (text.isEmpty()) return
@@ -1199,9 +1024,7 @@ class BucketTemplateTestView(
         testSelected.text = if (selected > 1) "Test $selected selected" else "Test selected"
         run.isEnabled = !running && source != null
         stop.isEnabled = running && !stopRequested
-        listOf(detector, maxPoints, alignment, minLineFit, parallel, checkText, runCount, order, untestedOnly,
-            reloadTemplates, chooseTemplates)
-            .forEach { it.isEnabled = !running }
+        listOf(parallel, runCount, order, untestedOnly, reloadTemplates, chooseTemplates).forEach { it.isEnabled = !running }
         val file = shown
         shownName.text = file?.fileName ?: " "
         shownName.toolTipText = file?.let { source?.location(it.name) }
@@ -1225,10 +1048,9 @@ class BucketTemplateTestView(
             else -> "Finished in $seconds s:"
         }
         summary.text = "$state $finished of ${runKeys.size} file${plural(runKeys.size)} tested — " +
-            "${counts[PdfStatus.ALL_PAGES] ?: 0} all pages matched, ${counts[PdfStatus.SOME_PAGES] ?: 0} some pages, " +
-            "${counts[PdfStatus.NO_MATCH] ?: 0} no match, ${counts[PdfStatus.ERROR] ?: 0} errors"
-        val perTemplate = runResults.flatMap { result -> result.pageResults.mapNotNull { it.match?.template?.label } }.groupingBy { it }.eachCount()
-        summary.toolTipText = if (perTemplate.isEmpty()) null else "<html>Pages per best template in this run:<br>" +
+            "${counts[PdfStatus.MATCHED] ?: 0} matched, ${counts[PdfStatus.NO_MATCH] ?: 0} no match, ${counts[PdfStatus.ERROR] ?: 0} errors"
+        val perTemplate = runResults.mapNotNull { result -> result.outcomes.firstOrNull()?.template?.group }.groupingBy { it }.eachCount()
+        summary.toolTipText = if (perTemplate.isEmpty()) null else "<html>Files per template in this run:<br>" +
             perTemplate.entries.sortedByDescending { it.value }.joinToString("<br>") { "${escape(it.key)}: ${it.value}" } + "</html>"
     }
 
@@ -1256,10 +1078,9 @@ class BucketTemplateTestView(
         const val CREATED = 2
         const val PAGES = 3
         const val RESULT = 4
-        const val PRODUCTION = 5
-        const val BEST = 6
-        const val TIME = 7
-        val NAMES = listOf("Name", "Size", "Date added", "Pages", "Result", "Production", "Template per page", "Time")
+        const val TEMPLATE = 5
+        const val TIME = 6
+        val NAMES = listOf("Name", "Size", "Date added", "Pages", "Result", "Template", "Time")
     }
 
     private inner class FileTableModel : AbstractTableModel() {
@@ -1314,8 +1135,7 @@ class BucketTemplateTestView(
                 FileColumns.CREATED -> file.created
                 FileColumns.PAGES -> result?.pages
                 FileColumns.RESULT -> result?.status
-                FileColumns.PRODUCTION -> result?.production?.text.orEmpty()
-                FileColumns.BEST -> result?.templatesPerPage.orEmpty()
+                FileColumns.TEMPLATE -> result?.templateText.orEmpty()
                 else -> result?.takeIf { it.status.finished }?.millis?.takeIf { it > 0 }
             }
         }
@@ -1334,7 +1154,6 @@ class BucketTemplateTestView(
         private const val PREVIEW_DELAY_MS = 150
         private const val RESULT_TAB = 1
         private const val COMPARE_TAB = 2
-        private val IMAGE_SUFFIXES = ImageIO.getReaderFileSuffixes().map { it.lowercase() }.toSet()
 
         /**
          * Opens the view in its own window and lists the last used bucket. [onTemplateCreated] gets the page files
@@ -1363,8 +1182,7 @@ private enum class ShowFilter(private val label: String, val accepts: (PdfTestRe
     ALL("All files", { true }),
     UNTESTED("Untested", { it?.status?.finished != true }),
     TESTED("Tested", { it?.status?.finished == true }),
-    ALL_PAGES("✓ All pages matched", { it?.status == PdfStatus.ALL_PAGES }),
-    SOME_PAGES("◐ Some pages matched", { it?.status == PdfStatus.SOME_PAGES }),
+    MATCHED("✓ Matched", { it?.status == PdfStatus.MATCHED }),
     NO_MATCH("✗ No match", { it?.status == PdfStatus.NO_MATCH }),
     ERROR("Errors", { it?.status == PdfStatus.ERROR });
 
@@ -1377,7 +1195,7 @@ private enum class RunOrder(private val label: String) {
     override fun toString() = label
 }
 
-/** Every page × template outcome of one file: by page, each page's matches best first, then the rest closest first. */
+/** The template pages the matcher found in one file, in template order. */
 private class OutcomeTableModel : AbstractTableModel() {
     var rows: List<TemplateOutcome> = emptyList()
         private set
@@ -1390,41 +1208,27 @@ private class OutcomeTableModel : AbstractTableModel() {
     override fun getRowCount() = rows.size
     override fun getColumnCount() = COLUMNS.size
     override fun getColumnName(column: Int) = COLUMNS[column]
-    override fun getColumnClass(column: Int): Class<*> = when (column) {
-        0 -> Int::class.javaObjectType
-        3 -> BatchStatus::class.java
-        4, 5 -> Double::class.javaObjectType
-        6 -> Long::class.javaObjectType
-        else -> String::class.java
-    }
+    override fun getColumnClass(column: Int): Class<*> = String::class.java
 
     override fun getValueAt(row: Int, column: Int): Any? {
-        val outcome = rows[row]
+        val template = rows[row].template
         return when (column) {
-            0 -> outcome.page
-            1 -> outcome.role.toString()
-            2 -> outcome.template.label
-            3 -> outcome.result.status
-            4 -> outcome.result.agreement
-            5 -> outcome.result.lineFit
-            else -> outcome.result.millis
+            0 -> template.group
+            else -> "${template.position} of ${template.templateSize} (${template.name})"
         }
     }
 
     companion object {
-        const val TEXT = 4
-        val COLUMNS = listOf("PDF page", "Tested as", "Template", "Result", "Agree", "Lines", "Time")
+        val COLUMNS = listOf("Template", "Template page")
     }
 }
 
 private val MATCH_COLOR = Color(20, 130, 50)
-private val PARTIAL_COLOR = Color(170, 120, 0)
 private val NO_MATCH_COLOR = Color(195, 30, 30)
 private val ERROR_COLOR = Color(150, 60, 170)
 
 private fun statusColor(status: PdfStatus?): Color = when (status) {
-    PdfStatus.ALL_PAGES -> MATCH_COLOR
-    PdfStatus.SOME_PAGES -> PARTIAL_COLOR
+    PdfStatus.MATCHED -> MATCH_COLOR
     PdfStatus.NO_MATCH -> NO_MATCH_COLOR
     PdfStatus.ERROR -> ERROR_COLOR
     else -> Color.GRAY

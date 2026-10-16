@@ -1,6 +1,5 @@
 package no.nav.tsm.sykmelding.ocr
 
-import no.nav.tsm.sykmelding.model.OcrParserSykmelding
 import org.bytedeco.javacpp.DoublePointer
 import org.bytedeco.javacv.Java2DFrameUtils
 import org.bytedeco.opencv.global.opencv_core.*
@@ -110,12 +109,8 @@ class Ocr {
     }
 
 
-    fun parse3pager02019(template: Template, image: BufferedImage): Map<Pair<String, String?>, Felter> {
-        val valuesById = template.felter.associateBy { it.navn to parseField(image, it.x, it.y, it.bredde, it.hoyde)?.trim() }
-
-        return valuesById
-
-
+    fun parsePageWithFields(template: Template, image: BufferedImage): Map<Felter, String?> {
+        return template.felter.associateWith { parseField(image, it.x, it.y, it.bredde, it.hoyde)?.trim() }
     }
 
     fun parseField(image: BufferedImage, x: Int, y: Int, bredde: Int, hoyde: Int, psmMode: PSM_MODE = PSM_MODE.PSM_AUTO): String? {
@@ -222,7 +217,6 @@ class SykmeldingOcr(val ocr: Ocr) {
         val result = Mat()
 
         if (referenceImgMat.empty() || searchImgMat.empty()) {
-            println("One of the images is empty, cannot perform template matching.")
             return emptyList()
         }
 

@@ -19,7 +19,6 @@ import java.awt.Component
 import java.awt.Dimension
 import java.awt.GridLayout
 import java.awt.Color
-import java.awt.GraphicsEnvironment
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.File
@@ -614,9 +613,6 @@ class ImageComparisonView(
     private fun reportMatchingFailure(error: Throwable) {
         alignmentError = "Reference matching failed: ${error.message}"
         onStatus("Could not match reference images: ${error.message}")
-        if (!GraphicsEnvironment.isHeadless()) {
-            JOptionPane.showMessageDialog(this, error.message, "Could not match reference images", JOptionPane.ERROR_MESSAGE)
-        }
     }
 
     private fun bgrCopy(image: BufferedImage, width: Int = image.width, height: Int = image.height) =
@@ -701,9 +697,6 @@ class ImageComparisonView(
 
     private fun reportResizeFailure(error: Throwable) {
         onStatus("Could not resize images: ${error.message}")
-        if (!GraphicsEnvironment.isHeadless()) {
-            JOptionPane.showMessageDialog(this, error.message, "Could not resize images", JOptionPane.ERROR_MESSAGE)
-        }
     }
 
     private fun cancelResize() {
