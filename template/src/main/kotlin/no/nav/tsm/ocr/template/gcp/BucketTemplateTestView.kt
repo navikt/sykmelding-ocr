@@ -78,6 +78,7 @@ class BucketTemplateTestView(
     private val settings: Preferences? = Preferences.userNodeForPackage(GcpBucketView::class.java),
     private val downloadCache: DownloadCache = DownloadCache.shared,
     private val onTemplateCreated: ((pages: List<File>, openInEditor: Boolean) -> Unit)? = null,
+    private val testFolder: File? = findTestResources(),
 ) : JPanel(BorderLayout(6, 6)) {
 
     // Listing, as in GcpBucketView (which shares the last used bucket and prefix).
@@ -96,6 +97,13 @@ class BucketTemplateTestView(
             "fails<br>(expired credentials, no network). They are previewed and tested as usual. Their date added is unknown, " +
             "and files<br>whose names had to be changed to store them (names with / or unusual characters) are not listed.</html>"
         addActionListener { listDownloads() }
+    }
+    private val showTestPdfs = JButton("Show test PDFs").apply {
+        toolTipText = testFolder?.let { "<html>List the PDFs in ${escape(it.path)} instead of the bucket.<br>" +
+            "They are previewed and tested as usual; Prefix filters them by their path in the folder.</html>" }
+            ?: "No src/test/resources folder found from ${File("").absolutePath}."
+        isEnabled = testFolder != null
+        addActionListener { listTestFiles() }
     }
     private val stopListing = JButton("Stop listing").apply { isEnabled = false; addActionListener { listing?.cancel(true) } }
     private val filter = JTextField(18).apply { toolTipText = "Show only names containing this text" }
@@ -246,7 +254,7 @@ class BucketTemplateTestView(
         setupOutcomeTable()
 
         add(JPanel(GridLayout(0, 1, 0, 2)).apply {
-            add(flowRow(JLabel("Bucket:"), bucket, JLabel("Prefix:"), prefix, loadButton, showDownloads, stopListing, Box.createHorizontalStrut(18),
+            add(flowRow(JLabel("Bucket:"), bucket, JLabel("Prefix:"), prefix, loadButton, showDownloads, showTestPdfs, stopListing, Box.createHorizontalStrut(18),
                 downloadFolder))
             add(flowRow(JLabel("Filter:"), filter, pdfOnly, JLabel("Show:"), resultFilter, count))
             add(flowRow(JLabel("Detector:"), detector, JLabel("max points:"), maxPoints, JLabel("Alignment:"), alignment,
@@ -351,7 +359,7 @@ class BucketTemplateTestView(
             })
             addSeparator()
             add(JMenuItem("Copy name").apply { addActionListener { copy { it.name } } })
-            add(JMenuItem("Copy gs:// path").apply { addActionListener { copy { "gs://${source?.bucket}/${it.name}" } } })
+            add(JMenuItem("Copy path").apply { addActionListener { copy { source?.location(it.name) } } })
             add(JMenuItem("Copy results (tab-separated)").apply {
                 addActionListener {
                     copy { file ->
@@ -409,20 +417,29 @@ class BucketTemplateTestView(
     }
 
     /** Lists the bucket from scratch, newest first. Test results are kept, so reloading shows them again. */
-    fun load() = list(downloaded = false)
+    fun load() = list(ListMode.BUCKET)
 
     /** Lists the files downloaded from the bucket instead (see [DownloadedFilesSource]); test results are shared with [load]'s. */
-    private fun listDownloads() = list(downloaded = true)
+    private fun listDownloads() = list(ListMode.DOWNLOADS)
+    private fun listTestFiles() = list(ListMode.TEST_FILES)
 
-    private fun list(downloaded: Boolean) {
+    private fun list(mode: ListMode) {
         if (closed) return
+        val folder = testFolder
         val name = bucketName()
-        if (name.isEmpty()) { status.text = "Enter a bucket name."; return }
+        if (mode == ListMode.TEST_FILES && folder == null) { status.text = "No test resources folder found."; return }
+        if (mode != ListMode.TEST_FILES && name.isEmpty()) { status.text = "Enter a bucket name."; return }
         listing?.cancel(true)
         val prefixText = prefix.text.trim()
-        settings?.put(BUCKET, name)
-        settings?.put(PREFIX, prefixText)
-        val current = sourceFor(name).let { if (downloaded) DownloadedFilesSource(it, downloadCache) else it }
+        if (mode != ListMode.TEST_FILES) {
+            settings?.put(BUCKET, name)
+            settings?.put(PREFIX, prefixText)
+        }
+        val current = when (mode) {
+            ListMode.BUCKET -> sourceFor(name)
+            ListMode.DOWNLOADS -> DownloadedFilesSource(sourceFor(name), downloadCache)
+            ListMode.TEST_FILES -> LocalFolderSource(folder!!, include = BucketFile::isPdf)
+        }
         source = current
         val token = ++listingToken
         previewToken++
@@ -434,8 +451,12 @@ class BucketTemplateTestView(
         details.text = ""
         preview.showMessage("Select a file to preview it.")
         showResult()
-        val location = "gs://$name/$prefixText"
-        val target = if (downloaded) "the files downloaded from $location" else location
+        val location = if (folder != null && mode == ListMode.TEST_FILES) folder.resolve(prefixText).path else "gs://$name/$prefixText"
+        val target = when (mode) {
+            ListMode.BUCKET -> location
+            ListMode.DOWNLOADS -> "the files downloaded from $location"
+            ListMode.TEST_FILES -> "the test PDFs in $location"
+        }
         status.text = "Listing $target …"
         val worker = object : SwingWorker<Int, List<BucketFile>>() {
             override fun doInBackground(): Int {
@@ -464,14 +485,17 @@ class BucketTemplateTestView(
                     else -> try {
                         val found = get()
                         when {
-                            !downloaded -> "Listed $found files from $location" + if (found == 0) " — the bucket or prefix is empty." else "."
-                            found == 0 -> "No files downloaded from $location."
-                            else -> "Listed $found file${plural(found)} downloaded from $location. Press Load to list the bucket again."
+                            mode == ListMode.BUCKET ->
+                                "Listed $found files from $location" + if (found == 0) " — the bucket or prefix is empty." else "."
+                            found == 0 -> "No ${if (mode == ListMode.DOWNLOADS) "files downloaded from" else "test PDFs in"} $location."
+                            mode == ListMode.DOWNLOADS ->
+                                "Listed $found file${plural(found)} downloaded from $location. Press Load to list the bucket again."
+                            else -> "Listed $found test PDF${plural(found)} in $location. Press Load to list the bucket again."
                         }
                     } catch (error: Exception) {
                         val cause = if (error is ExecutionException) error.cause ?: error else error
                         "Could not list $target: ${describeGcpError(cause).replace("\n", " — ")}" +
-                            if (downloaded) "" else " — Show downloads lists the files already downloaded from it."
+                            if (mode == ListMode.BUCKET) " — Show downloads lists the files already downloaded from it." else ""
                     }
                 }
             }
@@ -783,7 +807,7 @@ class BucketTemplateTestView(
                 if (text.isNotEmpty()) append(key.padEnd(15)).append(text).append('\n')
             }
             line("Name", file.name)
-            line("Location", "gs://${source?.bucket}/${file.name}")
+            line("Location", source?.location(file.name))
             line("Size", "%,d bytes (%s)".format(file.size, formatSize(file.size)))
             line("Date added", formatTime(file.created))
             line("Content type", file.contentType)
@@ -1101,7 +1125,11 @@ class BucketTemplateTestView(
 
     private fun updateCount() {
         val tested = files.rows.count { results[files.key(it)]?.status?.finished == true }
-        val what = if (source is DownloadedFilesSource) "downloaded files" else "files"
+        val what = when (source) {
+            is DownloadedFilesSource -> "downloaded files"
+            is LocalFolderSource -> "test PDFs"
+            else -> "files"
+        }
         count.text = "Showing ${table.rowCount} of ${files.rowCount} $what (${formatSize(files.totalBytes)}), $tested tested"
     }
 
@@ -1118,7 +1146,7 @@ class BucketTemplateTestView(
             .forEach { it.isEnabled = !running }
         val file = shown
         shownName.text = file?.fileName ?: " "
-        shownName.toolTipText = file?.let { "gs://${source?.bucket}/${it.name}" }
+        shownName.toolTipText = file?.let { source?.location(it.name) }
         val canDownload = !downloading && source != null && file != null
         download.isEnabled = canDownload
         downloadItem.isEnabled = canDownload
@@ -1268,6 +1296,8 @@ class BucketTemplateTestView(
         }
     }
 }
+
+private enum class ListMode { BUCKET, DOWNLOADS, TEST_FILES }
 
 private enum class ShowFilter(private val label: String, val accepts: (PdfTestResult?) -> Boolean) {
     ALL("All files", { true }),

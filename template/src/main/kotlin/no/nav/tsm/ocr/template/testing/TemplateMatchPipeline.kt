@@ -257,10 +257,13 @@ internal fun templateLines(reference: BufferedImage): Mat = formLines(reference)
  * Share of [templateLines] pixels that have a line pixel of the aligned page within [LINE_TOLERANCE] pixels:
  * close to 1 when the form lines coincide, low when the page is aligned wrongly or is another form.
  */
-internal fun lineFit(templateLines: Mat, aligned: BufferedImage): Double {
+internal fun lineFit(templateLines: Mat, aligned: BufferedImage): Double = grayMat(aligned).use { lineFit(templateLines, it) }
+
+/** As [lineFit], for the aligned page as an 8-bit gray Mat, e.g. straight from warpPerspective. */
+internal fun lineFit(templateLines: Mat, alignedGray: Mat): Double {
     val total = countNonZero(templateLines)
     if (total == 0) return 1.0
-    formLines(aligned).use { page ->
+    formLines(alignedGray).use { page ->
         Mat().use { near ->
             getStructuringElement(MORPH_RECT, Size(2 * LINE_TOLERANCE + 1, 2 * LINE_TOLERANCE + 1)).use { dilate(page, near, it) }
             Mat().use { both ->
@@ -271,29 +274,34 @@ internal fun lineFit(templateLines: Mat, aligned: BufferedImage): Double {
     }
 }
 
-/** Ink (Otsu) opened with long thin kernels: strokes at least about 5 mm long at 400 DPI, so text drops out. */
-private fun formLines(image: BufferedImage, exclusions: List<Rectangle> = emptyList()): Mat {
+private fun formLines(image: BufferedImage, exclusions: List<Rectangle> = emptyList()): Mat =
+    grayMat(image).use { formLines(it, exclusions) }
+
+/** Ink (Otsu) opened with long thin kernels: strokes at least about 5 mm long at 400 DPI, so text drops out. [gray] is 8-bit, one channel. */
+private fun formLines(gray: Mat, exclusions: List<Rectangle> = emptyList()): Mat {
+    val length = maxOf(40, minOf(gray.cols(), gray.rows()) / 40)
+    Mat().use { ink ->
+        threshold(gray, ink, 0.0, 255.0, THRESH_BINARY_INV or THRESH_OTSU)
+        Scalar(0.0).use { black ->
+            exclusions.forEach { region -> Rect(region.x, region.y, region.width, region.height).use { rectangle(ink, it, black, FILLED, LINE_8, 0) } }
+        }
+        Mat().use { horizontal ->
+            Mat().use { vertical ->
+                getStructuringElement(MORPH_RECT, Size(length, 1)).use { morphologyEx(ink, horizontal, MORPH_OPEN, it) }
+                getStructuringElement(MORPH_RECT, Size(1, length)).use { morphologyEx(ink, vertical, MORPH_OPEN, it) }
+                return Mat().also { bitwise_or(horizontal, vertical, it) }
+            }
+        }
+    }
+}
+
+/** [image] as an 8-bit gray Mat, drawn on white so transparency does not count as ink. The caller owns the result. */
+private fun grayMat(image: BufferedImage): Mat {
     val gray = BufferedImage(image.width, image.height, BufferedImage.TYPE_BYTE_GRAY).also { copy ->
         copy.createGraphics().let { g -> try { g.color = Color.WHITE; g.fillRect(0, 0, copy.width, copy.height); g.drawImage(image, 0, 0, null) } finally { g.dispose() } }
     }
     val bytes = (gray.raster.dataBuffer as DataBufferByte).data
-    val length = maxOf(40, minOf(image.width, image.height) / 40)
-    Mat(gray.height, gray.width, CV_8UC1).use { source ->
-        source.data().put(bytes, 0, bytes.size)
-        Mat().use { ink ->
-            threshold(source, ink, 0.0, 255.0, THRESH_BINARY_INV or THRESH_OTSU)
-            Scalar(0.0).use { black ->
-                exclusions.forEach { region -> Rect(region.x, region.y, region.width, region.height).use { rectangle(ink, it, black, FILLED, LINE_8, 0) } }
-            }
-            Mat().use { horizontal ->
-                Mat().use { vertical ->
-                    getStructuringElement(MORPH_RECT, Size(length, 1)).use { morphologyEx(ink, horizontal, MORPH_OPEN, it) }
-                    getStructuringElement(MORPH_RECT, Size(1, length)).use { morphologyEx(ink, vertical, MORPH_OPEN, it) }
-                    return Mat().also { bitwise_or(horizontal, vertical, it) }
-                }
-            }
-        }
-    }
+    return Mat(gray.height, gray.width, CV_8UC1).also { it.data().put(bytes, 0, bytes.size) }
 }
 
 private fun png(image: BufferedImage): ByteArray = ByteArrayOutputStream().also { ImageIO.write(image, "png", it) }.toByteArray()

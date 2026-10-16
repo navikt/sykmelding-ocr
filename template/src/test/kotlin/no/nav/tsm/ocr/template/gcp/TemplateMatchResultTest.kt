@@ -1,5 +1,7 @@
 package no.nav.tsm.ocr.template.gcp
 
+import no.nav.tsm.sykmelding.template.TemplateMatchResult
+import no.nav.tsm.sykmelding.template.TemplateMatcher
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import java.io.File

@@ -5,6 +5,7 @@ import com.google.cloud.storage.BlobId
 import com.google.cloud.storage.Storage
 import com.google.cloud.storage.StorageException
 import com.google.cloud.storage.StorageOptions
+import java.io.File
 import java.time.Instant
 
 /** The buckets syfosmpapirmottak uploads scanned documents to (`TSM_OCR_BUCKET`). Any bucket name can be typed. */
@@ -49,7 +50,41 @@ interface BucketSource {
     fun pages(prefix: String): Sequence<List<BucketFile>>
 
     fun download(name: String): ByteArray
+
+    fun location(name: String): String = "gs://$bucket/$name"
 }
+
+class LocalFolderSource(
+    private val folder: File,
+    override val bucket: String = "local-${folder.name}",
+    private val include: (BucketFile) -> Boolean = { true },
+) : BucketSource {
+
+    override fun pages(prefix: String): Sequence<List<BucketFile>> = sequence {
+        val root = folder.absoluteFile
+        yield(root.walkTopDown().filter { it.isFile && !it.name.startsWith(".") }
+            .map { file ->
+                val modified = file.lastModified().takeIf { it > 0 }
+                BucketFile(file.relativeTo(root).invariantSeparatorsPath, file.length(),
+                    created = modified?.let(Instant::ofEpochMilli), generation = modified)
+            }
+            .filter { it.name.startsWith(prefix) && include(it) }
+            .sortedBy { it.name }
+            .toList())
+    }
+
+    override fun download(name: String): ByteArray = resolve(name).readBytes()
+
+    override fun location(name: String): String = resolve(name).path
+
+    private fun resolve(name: String): File {
+        val root = folder.canonicalFile
+        return root.resolve(name).canonicalFile.also { require(it.startsWith(root)) { "$name is not in $folder" } }
+    }
+}
+
+internal fun findTestResources(): File? =
+    listOf(File("template/src/test/resources"), File("src/test/resources")).firstOrNull { it.isDirectory }?.absoluteFile
 
 /** Uses Application Default Credentials: `gcloud auth application-default login`. */
 class GcsBucketSource(override val bucket: String, private val storage: Storage = defaultStorage) : BucketSource {

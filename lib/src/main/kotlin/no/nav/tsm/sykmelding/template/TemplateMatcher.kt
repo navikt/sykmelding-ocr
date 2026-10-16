@@ -3,16 +3,33 @@ package no.nav.tsm.sykmelding.template
 import no.nav.tsm.sykmelding.utils.grayscale
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.pdmodel.PDDocument
+import org.bytedeco.javacpp.PointerScope
 import org.bytedeco.javacpp.indexer.FloatIndexer
 import org.bytedeco.opencv.global.opencv_calib3d.RANSAC
 import org.bytedeco.opencv.global.opencv_calib3d.findHomography
+import org.bytedeco.opencv.global.opencv_core.BORDER_CONSTANT
 import org.bytedeco.opencv.global.opencv_core.CV_32FC2
 import org.bytedeco.opencv.global.opencv_core.NORM_HAMMING
+import org.bytedeco.opencv.global.opencv_core.bitwise_and
+import org.bytedeco.opencv.global.opencv_core.bitwise_or
 import org.bytedeco.opencv.global.opencv_core.countNonZero
-import org.bytedeco.opencv.opencv_core.DMatchVectorVector
+import org.bytedeco.opencv.global.opencv_imgproc.INTER_LINEAR
+import org.bytedeco.opencv.global.opencv_imgproc.MORPH_OPEN
+import org.bytedeco.opencv.global.opencv_imgproc.MORPH_RECT
+import org.bytedeco.opencv.global.opencv_imgproc.THRESH_BINARY_INV
+import org.bytedeco.opencv.global.opencv_imgproc.THRESH_OTSU
+import org.bytedeco.opencv.global.opencv_imgproc.dilate
+import org.bytedeco.opencv.global.opencv_imgproc.getStructuringElement
+import org.bytedeco.opencv.global.opencv_imgproc.morphologyEx
+import org.bytedeco.opencv.global.opencv_imgproc.threshold
+import org.bytedeco.opencv.global.opencv_imgproc.warpPerspective
+import org.bytedeco.opencv.global.opencv_xfeatures2d.matchGMS
+import org.bytedeco.opencv.opencv_core.DMatchVector
 import org.bytedeco.opencv.opencv_core.KeyPointVector
 import org.bytedeco.opencv.opencv_core.Mat
 import org.bytedeco.opencv.opencv_core.Point2f
+import org.bytedeco.opencv.opencv_core.Scalar
+import org.bytedeco.opencv.opencv_core.Size
 import org.bytedeco.opencv.opencv_features2d.AKAZE
 import org.bytedeco.opencv.opencv_features2d.BFMatcher
 import org.example.no.nav.tsm.ocr.template.template.PdfTemplateImages
@@ -27,8 +44,8 @@ import javax.imageio.ImageIO
 
 sealed interface TemplateMatchResult {
     data class Matched(val template: TemplateGroup,
-            val templateMatch: Map<Template, BufferedImage>
-        ) : TemplateMatchResult
+                       val templateMatch: Map<Template, BufferedImage>
+    ) : TemplateMatchResult
     data object NoMatch : TemplateMatchResult
     data class Error(val exception: Exception) : TemplateMatchResult
     data class TooManyPages(val pages: Int, val maxPages: Int) : TemplateMatchResult
@@ -36,25 +53,38 @@ sealed interface TemplateMatchResult {
 
 class LoadedTemplate(
     val template: Template,
-    val bufferedImage: BufferedImage,
-    val referenceImages: List<BufferedImage> = emptyList(),
-)
+    val width: Int,
+    val height: Int,
+    val keypoints: KeyPointVector,
+    val descriptors: Mat,
+    val lines: Mat,
+    referenceImages: () -> List<BufferedImage> = { emptyList() },
+) : AutoCloseable {
+    val referenceImages: List<BufferedImage> by lazy(referenceImages)
+
+    override fun close() {
+        keypoints.close(); descriptors.close(); lines.close()
+    }
+}
 
 class TemplateMatcher(
     private val library: TemplateLibrary = TemplateLibrary(File("../templates")),
     private val maxPages: Int = DEFAULT_MAX_PAGES,
-) {
+) : AutoCloseable {
     private val objectMapper = jacksonObjectMapper()
-    private val templates: List<TemplateGroup>
-
-    init {
-        templates = library.list()
-    }
+    private val akaze = AKAZE.create()
+    private val templates: List<TemplateGroup> = library.list()
+    private val loaded: Map<TemplateGroup, List<LoadedTemplate>> = templates.associateWith { group -> group.pageFiles.map { load(it)} }
 
     fun matchPdf(pdf: File): TemplateMatchResult = try {
         match(pdf)
     } catch (e: Exception) {
         TemplateMatchResult.Error(e)
+    }
+
+    override fun close() {
+        loaded.values.flatten().forEach { it.close() }
+        akaze.close()
     }
 
     private fun matchWithRefPoints(pdf: File): TemplateMatchResult {
@@ -81,27 +111,22 @@ class TemplateMatcher(
             pdfToImages(document)
         }
 
-        for (template in templates) {
-            val matched = matchesTemplate(template, pages)
-            if (matched is TemplateMatchResult.Matched) return matched
+        val prepared = pages.map { prepare(it) }
+        try {
+            for (template in templates) {
+                val matched = matchesTemplate(template, prepared)
+                if (matched is TemplateMatchResult.Matched) return matched
+            }
+            return TemplateMatchResult.NoMatch
+        } finally {
+            prepared.forEach { it.close() }
         }
-
-        return TemplateMatchResult.NoMatch
     }
     private fun matchesTemplateFromReferenceImages(
         template: TemplateGroup,
         pages: List<BufferedImage>
     ): TemplateMatchResult {
-        val templateImages = template.pageFiles.map {
-            val thisTemmplate = objectMapper.readValue<Template>(it.readText())
-            val templateBildet = ImageIO.read(File(it.parent).resolve(thisTemmplate.templateBilde).inputStream())
-            val referenceImages = thisTemmplate.referansepunkter.map { ref ->
-                ImageIO.read(File(it.parent).resolve(ref))
-            }
-            LoadedTemplate(template = thisTemmplate, templateBildet, referenceImages)
-        }
-
-        val refimageMatches = templateImages.associate { template ->
+        val refimageMatches = loaded.getValue(template).associate { template ->
             val page =
                 pages.firstOrNull { page -> matchesRefImage(page, template) } ?: return TemplateMatchResult.NoMatch
             template.template to page
@@ -117,54 +142,68 @@ class TemplateMatcher(
         TODO("Not yet implemented")
     }
 
-    private fun matchesTemplate(template: TemplateGroup, pages: List<BufferedImage>): TemplateMatchResult {
-        val templateImages = template.pageFiles.map {
-            val thisTemmplate = objectMapper.readValue<Template>(it.readText())
-            val templateBildet = ImageIO.read(File( it.parent).resolve(thisTemmplate.templateBilde).inputStream())
-            LoadedTemplate(template = thisTemmplate, templateBildet)
-        }
-
-        val templateMatch = templateImages.associate { templateImage ->
-            val page = pages.firstOrNull { page -> matchesPage(page, templateImage) } ?: return TemplateMatchResult.NoMatch
-            templateImage.template to page
+    private fun matchesTemplate(template: TemplateGroup, pages: List<PreparedPage>): TemplateMatchResult {
+        val templateMatch = loaded.getValue(template).associate { templatePage ->
+            val page = pages.firstOrNull { page -> matchesPage(page, templatePage) } ?: return TemplateMatchResult.NoMatch
+            templatePage.template to page.image
         }
 
         return TemplateMatchResult.Matched(template, templateMatch)
     }
 
-    /** Whether the PDF [page] is the same form page as [templateImage]. */
-    private fun matchesPage(page: BufferedImage, templateImage: LoadedTemplate): Boolean {
-        val pageGray = grayscale(page)
-        val templateGray = grayscale(templateImage.bufferedImage)
+    private fun matchesPage(page: PreparedPage, template: LoadedTemplate): Boolean = PointerScope().use {
+        if (page.descriptors.empty() || template.descriptors.empty()) return false
 
-        val akaze = AKAZE.create()
-        val pageKeypoints = KeyPointVector()
-        val pageDescriptors = Mat()
-        val templateKeypoints = KeyPointVector()
-        val templateDescriptors = Mat()
-        akaze.detectAndCompute(pageGray, Mat(), pageKeypoints, pageDescriptors)
-        akaze.detectAndCompute(templateGray, Mat(), templateKeypoints, templateDescriptors)
-        if (pageDescriptors.empty() || templateDescriptors.empty()) return false
+        val nearest = DMatchVector()
+        BFMatcher(NORM_HAMMING, false).match(template.descriptors, page.descriptors, nearest)
+        val consistent = DMatchVector()
+        matchGMS(Size(template.width, template.height), Size(page.gray.cols(), page.gray.rows()),
+            template.keypoints, page.keypoints, nearest, consistent, true, false, 6.0)
+        val matches = (0 until consistent.size()).map { consistent.get(it) }
+        if (matches.size < MIN_MATCHES) return false
 
-        val knn = DMatchVectorVector()
-        BFMatcher(NORM_HAMMING, false).knnMatch(templateDescriptors, pageDescriptors, knn, 2)
-        val good = (0 until knn.size()).map { knn.get(it) }
-            .filter { it.size() == 2L && it.get(0).distance() < 0.75f * it.get(1).distance() }
-            .map { it.get(0) }
-        if (good.size < 10) return false
-
-        // 4. Do the good matches agree on one page → template transform? (RANSAC homography)
-        val from = pointMat(good.map { pageKeypoints.get(it.trainIdx().toLong()).pt() })
-        val to = pointMat(good.map { templateKeypoints.get(it.queryIdx().toLong()).pt() })
+        val from = pointMat(matches.map { page.keypoints.get(it.trainIdx().toLong()).pt() })
+        val to = pointMat(matches.map { template.keypoints.get(it.queryIdx().toLong()).pt() })
         val inlierMask = Mat()
         val homography = findHomography(from, to, RANSAC, 3.0, inlierMask, 2000, 0.99)
         if (homography.empty()) return false
         val inliers = countNonZero(inlierMask)
+        if (inliers < MIN_INLIERS || inliers < matches.size * MIN_AGREEMENT) return false
 
-        // 5. Enough matches agree → same form page
-        return (inliers >= 20 && inliers >= good.size * 0.4)
-
+        val aligned = Mat()
+        warpPerspective(page.gray, aligned, homography, Size(template.width, template.height), INTER_LINEAR, BORDER_CONSTANT, Scalar(255.0))
+        lineFit(template.lines, aligned) >= MIN_LINE_FIT
     }
+
+    private class PreparedPage(val image: BufferedImage, val gray: Mat, val keypoints: KeyPointVector, val descriptors: Mat) : AutoCloseable {
+        override fun close() {
+            gray.close(); keypoints.close(); descriptors.close()
+        }
+    }
+
+    private fun prepare(image: BufferedImage): PreparedPage {
+        val gray = grayscale(image)
+        val keypoints = KeyPointVector()
+        val descriptors = Mat()
+        Mat().use { mask -> akaze.detectAndCompute(gray, mask, keypoints, descriptors) }
+        return PreparedPage(image, gray, keypoints, descriptors)
+    }
+
+    private fun load(file: File): LoadedTemplate {
+        val template = objectMapper.readValue<Template>(file.readText())
+        val folder = File(file.parent)
+        val image = ImageIO.read(folder.resolve(template.templateBilde))
+        val keypoints = KeyPointVector()
+        val descriptors = Mat()
+        val lines = grayscale(image).use { gray ->
+            Mat().use { mask -> akaze.detectAndCompute(gray, mask, keypoints, descriptors) }
+            formLines(gray)
+        }
+        return LoadedTemplate(template, image.width, image.height, keypoints, descriptors, lines) {
+            template.referansepunkter.map { ImageIO.read(folder.resolve(it)) }
+        }
+    }
+
     private fun pointMat(points: List<Point2f>): Mat = Mat(points.size, 1, CV_32FC2).apply {
         createIndexer<FloatIndexer>().use { indexer ->
             points.forEachIndexed { i, p ->
@@ -179,5 +218,38 @@ class TemplateMatcher(
 
     companion object {
         const val DEFAULT_MAX_PAGES = 5
+        private const val MIN_MATCHES = 8
+        private const val MIN_INLIERS = 8
+        private const val MIN_AGREEMENT = 0.4
+        private const val MIN_LINE_FIT = 0.6
+    }
+}
+private const val LINE_TOLERANCE = 6
+
+internal fun lineFit(templateLines: Mat, alignedGray: Mat): Double {
+    val total = countNonZero(templateLines)
+    if (total == 0) return 1.0
+    formLines(alignedGray).use { page ->
+        Mat().use { near ->
+            getStructuringElement(MORPH_RECT, Size(2 * LINE_TOLERANCE + 1, 2 * LINE_TOLERANCE + 1)).use { dilate(page, near, it) }
+            Mat().use { both ->
+                bitwise_and(templateLines, near, both)
+                return countNonZero(both).toDouble() / total
+            }
+        }
+    }
+}
+
+internal fun formLines(gray: Mat): Mat {
+    val length = maxOf(40, minOf(gray.cols(), gray.rows()) / 40)
+    Mat().use { ink ->
+        threshold(gray, ink, 0.0, 255.0, THRESH_BINARY_INV or THRESH_OTSU)
+        Mat().use { horizontal ->
+            Mat().use { vertical ->
+                getStructuringElement(MORPH_RECT, Size(length, 1)).use { morphologyEx(ink, horizontal, MORPH_OPEN, it) }
+                getStructuringElement(MORPH_RECT, Size(1, length)).use { morphologyEx(ink, vertical, MORPH_OPEN, it) }
+                return Mat().also { bitwise_or(horizontal, vertical, it) }
+            }
+        }
     }
 }
