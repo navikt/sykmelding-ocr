@@ -12,6 +12,8 @@ import no.nav.tsm.ocr.template.testing.GuidePane
 import no.nav.tsm.ocr.template.testing.LINE_TOLERANCE
 import no.nav.tsm.ocr.template.testing.previewBoxes
 import no.nav.tsm.ocr.template.testing.summarize
+import no.nav.tsm.sykmelding.template.TemplateMatchResult
+import no.nav.tsm.sykmelding.template.TemplateMatcher
 import org.example.no.nav.tsm.ocr.template.template.TemplateGroup
 import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
 import java.awt.BorderLayout
@@ -237,6 +239,8 @@ class BucketTemplateTestView(
     /** Template features from the last run, reused while the library and settings are unchanged. Only the run thread
      * changes it while a run is going; otherwise only the EDT. */
     @Volatile private var prepared: PreparedTemplates? = null
+    /** lib's [TemplateMatcher], what production runs, with the library fingerprint it was built for; see [matcherFor]. */
+    @Volatile private var production: Pair<List<String>, TemplateMatcher>? = null
     private var runKeys: List<String> = emptyList()
     private var runStarted = 0L
     private var runEnded = 0L
@@ -335,6 +339,20 @@ class BucketTemplateTestView(
         }
         columnModel.getColumn(FileColumns.NAME).cellRenderer = fullTextRenderer
         columnModel.getColumn(FileColumns.BEST).cellRenderer = fullTextRenderer
+        columnModel.getColumn(FileColumns.PRODUCTION).cellRenderer = object : DefaultTableCellRenderer() {
+            override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component {
+                val result = files.resultAt(table.convertRowIndexToModel(row))
+                return super.getTableCellRendererComponent(table, value, selected, focus, row, column).also {
+                    toolTipText = "What lib's TemplateMatcher (production) decides about the file" +
+                        (result?.production?.text?.let { ": $it" } ?: "") + (if (result?.agreesWithProduction == false) " — differs from Result" else "")
+                    if (!selected) foreground = when (result?.production?.matched) {
+                        true -> MATCH_COLOR
+                        false -> NO_MATCH_COLOR
+                        null -> Color.GRAY
+                    }
+                }
+            }
+        }
         columnModel.getColumn(FileColumns.RESULT).cellRenderer = object : DefaultTableCellRenderer() {
             override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component {
                 val result = files.resultAt(table.convertRowIndexToModel(row))
@@ -343,7 +361,7 @@ class BucketTemplateTestView(
                 }
             }
         }
-        listOf(300 to 120, 70 to 60, 140 to 130, 45 to 40, 110 to 90, 260 to 100, 60 to 50).forEachIndexed { index, (preferred, minimum) ->
+        listOf(300 to 120, 70 to 60, 140 to 130, 45 to 40, 110 to 90, 150 to 90, 260 to 100, 60 to 50).forEachIndexed { index, (preferred, minimum) ->
             columnModel.getColumn(index).apply { preferredWidth = preferred; minWidth = minimum }
         }
         selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) selectionChanged() }
@@ -364,7 +382,8 @@ class BucketTemplateTestView(
                 addActionListener {
                     copy { file ->
                         results[files.key(file)]?.takeIf { it.status.finished }?.let { result ->
-                            listOf(file.name, result.pages?.toString().orEmpty(), result.status.name, result.templatesPerPage).joinToString("\t")
+                            listOf(file.name, result.pages?.toString().orEmpty(), result.status.name, result.production?.text.orEmpty(),
+                                result.templatesPerPage).joinToString("\t")
                         }
                     }
                 }
@@ -627,6 +646,7 @@ class BucketTemplateTestView(
                 val fileWorkers = Executors.newFixedThreadPool(threads) { task -> Thread(task, "bucket-template-file").apply { isDaemon = true } }
                 try {
                     val templates = templatesFor(batch.features, pool, ::say)
+                    val matcher = matcherFor(::say)
                     for ((index, file) in chosen.withIndex()) {
                         val key = keys[index]
                         fileWorkers.submit {
@@ -637,8 +657,13 @@ class BucketTemplateTestView(
                             val result = try {
                                 downloadCache.using(current, file) { cached ->
                                     withTestableFile(file, cached) { local ->
-                                        testAgainstTemplates(local, templates, batch, pool, { stopRequested || closed }) { done, total ->
+                                        val tested = testAgainstTemplates(local, templates, batch, pool, { stopRequested || closed }) { done, total ->
                                             post(key, PdfTestResult(PdfStatus.RUNNING, done = done, total = total))
+                                        }
+                                        // Then what production decides about the same file, for comparison.
+                                        if (tested == null || stopRequested || closed) tested else {
+                                            post(key, PdfTestResult(PdfStatus.RUNNING, "Production matcher …"))
+                                            tested.withProduction(productionVerdict(matcher, file, local))
                                         }
                                     }
                                 }
@@ -709,6 +734,39 @@ class BucketTemplateTestView(
     private fun closePrepared() {
         prepared?.close()
         prepared = null
+        production?.second?.close()
+        production = null
+    }
+
+    /**
+     * On the run thread: lib's [TemplateMatcher] for the whole library as it is now (it ignores "Choose templates"),
+     * kept from an earlier run when no template changed. Creating it detects the features of every template page.
+     */
+    private fun matcherFor(say: (String) -> Unit): Result<TemplateMatcher> {
+        val fingerprint = LibraryPages.load(library).fingerprint
+        production?.let { (built, matcher) -> if (built == fingerprint) return Result.success(matcher) }
+        production?.second?.close()
+        production = null
+        say("Preparing the production matcher (lib TemplateMatcher): detecting the features of every template page …")
+        return runCatching { TemplateMatcher(library) }.onSuccess { production = fingerprint to it }
+    }
+
+    /** What production's matcher makes of the file, in a few words. One file at a time: the matcher is not made for parallel use. */
+    private fun productionVerdict(matcher: Result<TemplateMatcher>, file: BucketFile, local: File): ProductionVerdict {
+        if (!file.isPdf) return ProductionVerdict("– not a PDF", null)
+        val found = matcher.getOrElse { return ProductionVerdict("Error: could not create the matcher — ${it.message ?: it}", null) }
+        val started = System.nanoTime()
+        val result = synchronized(found) { found.matchPdf(local) }
+        val seconds = "%.1f s".format((System.nanoTime() - started) / 1e9)
+        return when (result) {
+            is TemplateMatchResult.Matched -> {
+                val pages = result.templateMatch.size
+                ProductionVerdict("✓ ${result.template.manifest.navn} ($pages page${plural(pages)}, $seconds)", true)
+            }
+            TemplateMatchResult.NoMatch -> ProductionVerdict("✗ No match ($seconds)", false)
+            is TemplateMatchResult.Error -> ProductionVerdict("Error: ${result.exception.message ?: result.exception}", null)
+            is TemplateMatchResult.TooManyPages -> ProductionVerdict("– ${result.pages} pages; the matcher takes at most ${result.maxPages}", null)
+        }
     }
 
     private fun requestStop() {
@@ -1198,9 +1256,10 @@ class BucketTemplateTestView(
         const val CREATED = 2
         const val PAGES = 3
         const val RESULT = 4
-        const val BEST = 5
-        const val TIME = 6
-        val NAMES = listOf("Name", "Size", "Date added", "Pages", "Result", "Template per page", "Time")
+        const val PRODUCTION = 5
+        const val BEST = 6
+        const val TIME = 7
+        val NAMES = listOf("Name", "Size", "Date added", "Pages", "Result", "Production", "Template per page", "Time")
     }
 
     private inner class FileTableModel : AbstractTableModel() {
@@ -1255,6 +1314,7 @@ class BucketTemplateTestView(
                 FileColumns.CREATED -> file.created
                 FileColumns.PAGES -> result?.pages
                 FileColumns.RESULT -> result?.status
+                FileColumns.PRODUCTION -> result?.production?.text.orEmpty()
                 FileColumns.BEST -> result?.templatesPerPage.orEmpty()
                 else -> result?.takeIf { it.status.finished }?.millis?.takeIf { it > 0 }
             }

@@ -1,6 +1,7 @@
 package no.nav.tsm.sykmelding.template
 
 import no.nav.tsm.sykmelding.utils.grayscale
+import no.nav.tsm.sykmelding.utils.toBufferedImage
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.bytedeco.javacpp.PointerScope
@@ -43,6 +44,10 @@ import java.io.File
 import javax.imageio.ImageIO
 
 sealed interface TemplateMatchResult {
+    /**
+     * [templateMatch]: for each page of [template], the PDF page aligned to it — gray, at the template image's size,
+     * warped with the matching homography — so the template's field coordinates apply to it directly for OCR.
+     */
     data class Matched(val template: TemplateGroup,
                        val templateMatch: Map<Template, BufferedImage>
     ) : TemplateMatchResult
@@ -144,15 +149,16 @@ class TemplateMatcher(
 
     private fun matchesTemplate(template: TemplateGroup, pages: List<PreparedPage>): TemplateMatchResult {
         val templateMatch = loaded.getValue(template).associate { templatePage ->
-            val page = pages.firstOrNull { page -> matchesPage(page, templatePage) } ?: return TemplateMatchResult.NoMatch
-            templatePage.template to page.image
+            val aligned = pages.firstNotNullOfOrNull { page -> matchesPage(page, templatePage) } ?: return TemplateMatchResult.NoMatch
+            templatePage.template to aligned
         }
 
         return TemplateMatchResult.Matched(template, templateMatch)
     }
 
-    private fun matchesPage(page: PreparedPage, template: LoadedTemplate): Boolean = PointerScope().use {
-        if (page.descriptors.empty() || template.descriptors.empty()) return false
+    /** The PDF [page] aligned to [template] (gray, template size) if it is the same form page; null if not. */
+    private fun matchesPage(page: PreparedPage, template: LoadedTemplate): BufferedImage? = PointerScope().use {
+        if (page.descriptors.empty() || template.descriptors.empty()) return null
 
         val nearest = DMatchVector()
         BFMatcher(NORM_HAMMING, false).match(template.descriptors, page.descriptors, nearest)
@@ -160,22 +166,23 @@ class TemplateMatcher(
         matchGMS(Size(template.width, template.height), Size(page.gray.cols(), page.gray.rows()),
             template.keypoints, page.keypoints, nearest, consistent, true, false, 6.0)
         val matches = (0 until consistent.size()).map { consistent.get(it) }
-        if (matches.size < MIN_MATCHES) return false
+        if (matches.size < MIN_MATCHES) return null
 
         val from = pointMat(matches.map { page.keypoints.get(it.trainIdx().toLong()).pt() })
         val to = pointMat(matches.map { template.keypoints.get(it.queryIdx().toLong()).pt() })
         val inlierMask = Mat()
         val homography = findHomography(from, to, RANSAC, 3.0, inlierMask, 2000, 0.99)
-        if (homography.empty()) return false
+        if (homography.empty()) return null
         val inliers = countNonZero(inlierMask)
-        if (inliers < MIN_INLIERS || inliers < matches.size * MIN_AGREEMENT) return false
+        if (inliers < MIN_INLIERS || inliers < matches.size * MIN_AGREEMENT) return null
 
         val aligned = Mat()
         warpPerspective(page.gray, aligned, homography, Size(template.width, template.height), INTER_LINEAR, BORDER_CONSTANT, Scalar(255.0))
-        lineFit(template.lines, aligned) >= MIN_LINE_FIT
+        // Copied into Java memory here, before the scope frees the Mat.
+        if (lineFit(template.lines, aligned) >= MIN_LINE_FIT) toBufferedImage(aligned) else null
     }
 
-    private class PreparedPage(val image: BufferedImage, val gray: Mat, val keypoints: KeyPointVector, val descriptors: Mat) : AutoCloseable {
+    private class PreparedPage(val gray: Mat, val keypoints: KeyPointVector, val descriptors: Mat) : AutoCloseable {
         override fun close() {
             gray.close(); keypoints.close(); descriptors.close()
         }
@@ -186,7 +193,7 @@ class TemplateMatcher(
         val keypoints = KeyPointVector()
         val descriptors = Mat()
         Mat().use { mask -> akaze.detectAndCompute(gray, mask, keypoints, descriptors) }
-        return PreparedPage(image, gray, keypoints, descriptors)
+        return PreparedPage(gray, keypoints, descriptors)
     }
 
     private fun load(file: File): LoadedTemplate {

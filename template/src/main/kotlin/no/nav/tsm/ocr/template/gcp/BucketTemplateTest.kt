@@ -213,8 +213,15 @@ internal class PageResult(
 }
 
 /**
+ * What lib's TemplateMatcher — the matcher production runs — made of a file, in a few words. [matched] is null when
+ * it could not say: an error, too many pages, not a PDF.
+ */
+internal class ProductionVerdict(val text: String, val matched: Boolean?)
+
+/**
  * One document's result. While [PdfStatus.RUNNING], [done] of [total] pages are decided.
- * [ALL_PAGES][PdfStatus.ALL_PAGES]: every page matched a template page.
+ * [ALL_PAGES][PdfStatus.ALL_PAGES]: every page matched a template page. [production] is what production's matcher
+ * said about the same file, when it was run.
  */
 internal class PdfTestResult(
     val status: PdfStatus,
@@ -225,7 +232,11 @@ internal class PdfTestResult(
     val settings: BatchSettings? = null,
     val done: Int = 0,
     val total: Int = 0,
+    val production: ProductionVerdict? = null,
 ) {
+    /** False when production matched a template but not every page matched here, or the other way round. */
+    val agreesWithProduction: Boolean? get() = production?.matched?.let { it == (status == PdfStatus.ALL_PAGES) }
+
     val statusText: String
         get() = when {
             status == PdfStatus.RUNNING && total > 0 -> "Running page ${minOf(done + 1, total)}/$total …"
@@ -238,7 +249,10 @@ internal class PdfTestResult(
 
     /** A copy that keeps only the preview of each page's [PageResult.shown] outcome, so long runs do not fill the heap. */
     fun compact(): PdfTestResult = PdfTestResult(status, message, pages,
-        pageResults.map { page -> page.withOutcomes { if (it === page.shown) it else it.withoutPreview() } }, millis, settings, done, total)
+        pageResults.map { page -> page.withOutcomes { if (it === page.shown) it else it.withoutPreview() } }, millis, settings, done, total, production)
+
+    fun withProduction(verdict: ProductionVerdict): PdfTestResult =
+        PdfTestResult(status, message, pages, pageResults, millis, settings, done, total, verdict)
 
     /** A few lines: what each page is, or why it is none of the templates. */
     fun summary(): String = buildString {
@@ -253,6 +267,11 @@ internal class PdfTestResult(
                 if (millis > 0) append(" in %.1f s".format(millis / 1000.0))
                 appendLine()
                 pageResults.forEach { appendLine("  ${it.describe()}") }
+                production?.let {
+                    append("Production matcher (lib TemplateMatcher): ${it.text}")
+                    if (agreesWithProduction == false) append(" — differs from the test above")
+                    appendLine()
+                }
                 if (message.isNotEmpty()) appendLine(message)
                 settings?.let { appendLine("Settings: ${describeSettings(it)}") }
             }

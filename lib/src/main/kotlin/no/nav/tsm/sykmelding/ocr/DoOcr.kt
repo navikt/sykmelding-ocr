@@ -28,7 +28,7 @@ class ParseSykmeldingOcr(
                 "03.2019" -> {
                     val objekt = ocr.parse3pager02019(template, image)
                     objekt.forEach { pair, felter ->
-                     println("Found field : ${pair.first} and value : ${pair.second} with type : ${felter.type}")
+                     println("Field : ${pair.first},\t type: ${felter.type}, \t value: ${pair.second}")
                     }
                 //TODO map 0.2019 til objekt
                 }

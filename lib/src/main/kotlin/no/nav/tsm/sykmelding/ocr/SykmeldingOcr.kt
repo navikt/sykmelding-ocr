@@ -111,7 +111,7 @@ class Ocr {
 
 
     fun parse3pager02019(template: Template, image: BufferedImage): Map<Pair<String, String?>, Felter> {
-        val valuesById = template.felter.associateBy { it.id to parseField(image, it.x, it.y, it.bredde, it.hoyde) }
+        val valuesById = template.felter.associateBy { it.navn to parseField(image, it.x, it.y, it.bredde, it.hoyde)?.trim() }
 
         return valuesById
 
