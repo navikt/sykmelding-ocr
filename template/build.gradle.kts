@@ -25,5 +25,22 @@ dependencies {
 
 tasks.named<Test>("test") {
     // Use JUnit Platform for unit tests.
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("ocr-smoke")
+    }
+}
+
+tasks.register<Test>("ocrSmokeTest") {
+    description = "Runs OCR on svenskmann.pdf and prints fields for manual inspection."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform {
+        includeTags("ocr-smoke")
+    }
+    // Full-resolution matching also needs native OpenCV memory outside the Java heap.
+    maxHeapSize = "1g"
+    systemProperty("org.bytedeco.javacpp.maxPhysicalBytes", "8G")
+    testLogging.showStandardStreams = true
+    outputs.upToDateWhen { false }
 }

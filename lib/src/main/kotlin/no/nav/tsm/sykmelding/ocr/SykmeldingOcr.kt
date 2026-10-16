@@ -1,5 +1,6 @@
 package no.nav.tsm.sykmelding.ocr
 
+import no.nav.tsm.sykmelding.model.OcrParserSykmelding
 import org.bytedeco.javacpp.DoublePointer
 import org.bytedeco.javacv.Java2DFrameUtils
 import org.bytedeco.opencv.global.opencv_core.*
@@ -9,6 +10,8 @@ import org.bytedeco.opencv.opencv_core.Point
 import org.bytedeco.opencv.opencv_core.Scalar
 import org.bytedeco.tesseract.TessBaseAPI
 import org.bytedeco.tesseract.global.tesseract.*
+import org.example.no.nav.tsm.ocr.template.template.Felter
+import org.example.no.nav.tsm.ocr.template.template.Template
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
@@ -104,6 +107,49 @@ class Ocr {
                 tesseract.Clear()
             }
         }
+    }
+
+
+    fun parse3pager02019(template: Template, image: BufferedImage): Map<Pair<String, String?>, Felter> {
+        val valuesById = template.felter.associateBy { it.id to parseField(image, it.x, it.y, it.bredde, it.hoyde) }
+
+        return valuesById
+
+
+    }
+
+    fun parseField(image: BufferedImage, x: Int, y: Int, bredde: Int, hoyde: Int, psmMode: PSM_MODE = PSM_MODE.PSM_AUTO): String? {
+        val subImage = image.getSubimage(x, y, bredde, hoyde)
+
+        val grayscale = BufferedImage(subImage.width, subImage.height, BufferedImage.TYPE_BYTE_GRAY)
+        val graphics = grayscale.createGraphics()
+        try {
+            graphics.color = Color.WHITE
+            graphics.fillRect(0, 0, grayscale.width, grayscale.height)
+            graphics.drawImage(subImage, 0, 0, null)
+        } finally {
+            graphics.dispose()
+        }
+        val pixels = (grayscale.raster.dataBuffer as DataBufferByte).data
+
+        return synchronized(tesseract) {
+            tesseract.SetPageSegMode(psmMode.value)
+            tesseract.SetImage(pixels, grayscale.width, grayscale.height, 1, grayscale.width)
+            //TODO ta parameter for å sette whitelist ved behov? feks på fnr felt? kunne tatt ei liste med dei id-ane på felta som er relevante og if so så whitelister vi tall.
+//            tesseract.SetVariable("tessedit_char_whitelist", "0123456789-")
+//            tesseract.SetVariable("tessedit_char_blacklist", "|»")
+            val textPointer = tesseract.GetUTF8Text()
+            check(textPointer != null && !textPointer.isNull) { "OCR recognition failed" }
+            try {
+                textPointer.getString(Charsets.UTF_8)
+            } finally {
+                TessDeleteText(textPointer)
+                tesseract.Clear()
+            }
+        }
+
+
+
     }
 
     /* public fun getTextsRegions(img: BufferedImage): List<Rectangle?>? {
