@@ -10,6 +10,7 @@ import org.bytedeco.opencv.opencv_core.Scalar
 import org.bytedeco.tesseract.TessBaseAPI
 import org.bytedeco.tesseract.global.tesseract.*
 import org.example.no.nav.tsm.ocr.template.template.Felter
+import org.example.no.nav.tsm.ocr.template.template.FieldType
 import org.example.no.nav.tsm.ocr.template.template.Template
 import java.awt.Color
 import java.awt.image.BufferedImage
@@ -110,7 +111,17 @@ class Ocr {
 
 
     fun parsePageWithFields(template: Template, image: BufferedImage): Map<Felter, String?> {
-        return template.felter.associateWith { parseField(image, it.x, it.y, it.bredde, it.hoyde)?.trim() }
+        return template.felter.associateWith { field ->
+            when (field.type) {
+                FieldType.CHECKBOX -> when (detectCheckbox(image, field)) {
+                    CheckboxState.CHECKED -> "true"
+                    CheckboxState.UNCHECKED -> "false"
+                    CheckboxState.UNCERTAIN ->
+                        error("Cannot determine checkbox state: '${field.navn}' (${field.id})")
+                }
+                else -> parseField(image, field.x, field.y, field.bredde, field.hoyde)?.trim()
+            }
+        }
     }
 
     fun parseField(image: BufferedImage, x: Int, y: Int, bredde: Int, hoyde: Int, psmMode: PSM_MODE = PSM_MODE.PSM_AUTO): String? {

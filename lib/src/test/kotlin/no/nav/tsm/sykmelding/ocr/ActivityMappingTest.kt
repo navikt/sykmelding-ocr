@@ -1,10 +1,14 @@
 package no.nav.tsm.sykmelding.ocr
 
 import no.nav.tsm.sykmelding.model.OcrParserAktivitet
+import no.nav.tsm.sykmelding.template.TemplateMatcher
+import org.junit.jupiter.api.AfterEach
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ActivityMappingTest {
+    private val matcher = TemplateMatcher(templates = emptyList())
+    private val parser = ParseSykmeldingOcr(Ocr(), matcher)
     private val prefixes = listOf(
         "aktivitet.avventende",
         "aktivitet.gradert",
@@ -15,15 +19,20 @@ class ActivityMappingTest {
     private val fom = "01.10.2026"
     private val tom = "31.10.2026"
 
+    @AfterEach
+    fun closeMatcher() {
+        matcher.close()
+    }
+
     @Test
     fun `activities are omitted when either date is missing or blank`() {
-        assertEquals(emptyList(), mapThreePage2019Activities(emptyMap()))
+        assertEquals(emptyList(), parser.mapThreePage2019Activities(emptyMap()))
 
         for (missing in listOf(null, "", " \t\n")) {
             for ((start, end) in listOf(missing to tom, fom to missing, missing to missing)) {
                 assertEquals(
                     emptyList(),
-                    mapThreePage2019Activities(dateFields(start, end)),
+                    parser.mapThreePage2019Activities(dateFields(start, end)),
                     "Expected no activities for fom=$start and tom=$end",
                 )
             }
@@ -48,7 +57,7 @@ class ActivityMappingTest {
                 OcrParserAktivitet.Behandlingsdager(fom, tom, antallBehandlingsdager = 2),
                 OcrParserAktivitet.Reisetilskudd(fom, tom),
             ),
-            mapThreePage2019Activities(fields),
+            parser.mapThreePage2019Activities(fields),
         )
     }
 
@@ -70,7 +79,7 @@ class ActivityMappingTest {
                 OcrParserAktivitet.Gradert(fom, tom),
                 OcrParserAktivitet.Reisetilskudd(fom, tom),
             ),
-            mapThreePage2019Activities(fields),
+            parser.mapThreePage2019Activities(fields),
         )
     }
 
