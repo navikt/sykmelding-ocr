@@ -1,19 +1,21 @@
 package no.nav.tsm.sykmelding.model
 
 data class OcrParserSykmelding(
-    val formType: String,
+    val formType: String?,
     val formVersion: String?,
     val vurderingType: OcrParserVurderingType?,
     val legemeldtFravaerStart: String?,
-    val pasient: OcrParserPasient,
-    val arbeidsgiver: OcrParserArbeidsgiver,
-    val diagnose: OcrParserDiagnose,
-    val aktiviteter: List<OcrParserAktivitet>,
-    val prognose: OcrParserPrognose,
-    val tilleggsinformasjon: OcrParserTilleggsinformasjon,
-    val tilbakedatering: OcrParserTilbakedatering,
-    val sykmelder: OcrParserSykmelder,
-    val meta: OcrParserSykmeldingMeta,
+    val pasient: OcrParserPasient?,
+    val arbeidsgiver: OcrParserArbeidsgiver?,
+    val diagnose: OcrParserDiagnose?,
+    val aktiviteter: List<OcrParserAktivitet>?,
+    val prognose: OcrParserPrognose?,
+    val bedreArbeidsevne: OcrParserBedreArbeidsevne?,
+    val meldingTilArbeidsgiver: OcrParsedMeldingTilArbeidsgiver?,
+    val tilleggsinformasjon: OcrParserTilleggsinformasjon?,
+    val tilbakedatering: OcrParserTilbakedatering?,
+    val sykmelder: OcrParserSykmelder?,
+    val meta: OcrParserSykmeldingMeta?,
 )
 
 
@@ -62,7 +64,8 @@ data class OcrParserDiagnose(
     val hoveddiagnoseKode: String? = null,
     val hoveddiagnoseTekst: String? = null,
     val bidiagnoser: List<Bidiagnose> = emptyList(),
-    val annenFravarsarsak: String? = null,
+    val lovfestetFraversgrunn: String? = null,
+    val fraversgrunnBeskrivelse: String? = null,
     val svangerskap: Boolean = false,
     val yrkesskade: Boolean = false,
     val skadedato: String? = null,
@@ -112,6 +115,14 @@ sealed interface OcrParserAktivitet {
             get() = OcrParserAktivitetType.AVVENTENDE
     }
 
+    enum class Arbeidsgiver(
+        val value: String
+    ) {
+        EN_ARBEIDSGIVER("En arbeisgiver"),
+        FLERE_ARBEIDSGIVERE("Flere arbeidsgivere"), // må sjekke
+        INGEN_ARBEIDSGIVERE("Ingen arbeidsgiver"), // må sjekke
+    }
+
     data class Behandlingsdager(
         override val fom: String? = null,
         override val tom: String? = null,
@@ -128,13 +139,29 @@ sealed interface OcrParserAktivitet {
     }
 }
 
-data class OcrParserPrognose(val arbeidsforEtterPeriode: Boolean = false)
+data class OcrParserPrognose(
+    val arbeidsforEtterPeriode: Boolean = false,
+    val beskrivHensyn : String? = null,
+    )
 
-data class OcrParserTilleggsinformasjon(val bistandNavOnskes: Boolean = false)
+data class OcrParserBedreArbeidsevne (
+    val tilleggsinformasjonForArbeidsgiver: String? = null,
+    val tiltakIRegiAvNav : String? = null,
+    val eventuelleAndreInnspillTilNav : String? = null,
+)
+
+data class OcrParserTilleggsinformasjon(
+    val bistandNavOnskes: Boolean = false,
+    val beskrivBistandOnskes: String? = null,
+)
+
+data class OcrParsedMeldingTilArbeidsgiver(
+    val innspillTilArbeidsgiver: String?,
+)
 
 data class OcrParserTilbakedatering(
     val kontaktDato: String? = null,
-    val beskrivelse: String? = null,
+    val begrunnelse: String? = null,
 )
 
 data class OcrParserSykmelder(
