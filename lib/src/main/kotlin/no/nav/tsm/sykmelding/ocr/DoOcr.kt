@@ -102,33 +102,7 @@ class ParseSykmeldingOcr(
             skjermingPaakrevet = valuesByName["diagnose.skjermes"] != null && valuesByName["diagnose.skjermes"]!!.toBoolean(),
         )
 
-        val aktiviteter = listOf(
-            OcrParserAktivitet.Avventende(
-                fom = valuesByName["aktivitet.avventende.fom"],
-                tom = valuesByName["aktivitet.avventende.tom"],
-            ),
-            OcrParserAktivitet.Gradert(
-                fom = valuesByName["aktivitet.gradert.fom"],
-                tom = valuesByName["aktivitet.gradert.tom"],
-                grad = valuesByName["aktivitet.gradert.grad"]?.toIntOrNull(),
-                reisetilskudd = valuesByName["aktivitet.gradert.reisetilskudd"] != null && valuesByName["aktivitet.gradert.reisetilskudd"]!!.toBoolean(),
-            ),
-            OcrParserAktivitet.IkkeMulig(
-                fom = valuesByName["aktivitet.fom"],
-                tom = valuesByName["aktivitet.tom"],
-                medisinskArsak = valuesByName["aktivitet.medisinskeArsaker"] != null && valuesByName["aktivitet.medisinskeArsaker"]!!.toBoolean(),
-                arbeidsrelatertArsak = valuesByName["aktivitet.forholdArbeidsplassen"] != null && valuesByName["aktivitet.forholdArbeidsplassen"]!!.toBoolean(),
-            ),
-            OcrParserAktivitet.Behandlingsdager (
-                fom = valuesByName["aktivitet.behandlingsdager.fom"],
-                tom = valuesByName["aktivitet.behandlingsdager.tom"],
-                antallBehandlingsdager = valuesByName["aktivitet.behandlingsdager.dager"]?.toIntOrNull(),
-            ),
-            OcrParserAktivitet.Reisetilskudd (
-                fom = valuesByName["aktivitet.reisetilskudd.fom"],
-                tom = valuesByName["aktivitet.reisetilskudd.tom"],
-            )
-        )
+        val aktiviteter = mapThreePage2019Activities(valuesByName)
 
         val ocrParserPrognose = OcrParserPrognose(
             arbeidsforEtterPeriode = valuesByName["prognose.arbeidsforEtterPerioden"] != null && valuesByName["prognose.arbeidsforEtterPerioden"]!!.toBoolean(),
@@ -183,6 +157,35 @@ class ParseSykmeldingOcr(
 
         return ocrParsedSykmelding
     }
+
+    internal fun mapThreePage2019Activities(valuesByName: Map<String, String?>): List<OcrParserAktivitet> =
+        listOf(
+            OcrParserAktivitet.Avventende(
+                fom = valuesByName["aktivitet.avventende.fom"],
+                tom = valuesByName["aktivitet.avventende.tom"],
+            ),
+            OcrParserAktivitet.Gradert(
+                fom = valuesByName["aktivitet.gradert.fom"],
+                tom = valuesByName["aktivitet.gradert.tom"],
+                grad = valuesByName["aktivitet.gradert.grad"]?.toIntOrNull(),
+                reisetilskudd = valuesByName["aktivitet.gradert.reisetilskudd"] != null && valuesByName["aktivitet.gradert.reisetilskudd"]!!.toBoolean(),
+            ),
+            OcrParserAktivitet.IkkeMulig(
+                fom = valuesByName["aktivitet.fom"],
+                tom = valuesByName["aktivitet.tom"],
+                medisinskArsak = valuesByName["aktivitet.medisinskeArsaker"] != null && valuesByName["aktivitet.medisinskeArsaker"]!!.toBoolean(),
+                arbeidsrelatertArsak = valuesByName["aktivitet.forholdArbeidsplassen"] != null && valuesByName["aktivitet.forholdArbeidsplassen"]!!.toBoolean(),
+            ),
+            OcrParserAktivitet.Behandlingsdager(
+                fom = valuesByName["aktivitet.behandlingsdager.fom"],
+                tom = valuesByName["aktivitet.behandlingsdager.tom"],
+                antallBehandlingsdager = valuesByName["aktivitet.behandlingsdager.dager"]?.toIntOrNull(),
+            ),
+            OcrParserAktivitet.Reisetilskudd(
+                fom = valuesByName["aktivitet.reisetilskudd.fom"],
+                tom = valuesByName["aktivitet.reisetilskudd.tom"],
+            ),
+        ).filter { !it.fom.isNullOrBlank() && !it.tom.isNullOrBlank() }
 
     override fun readOcrFields(
         templateMatchResult: TemplateMatchResult.Matched

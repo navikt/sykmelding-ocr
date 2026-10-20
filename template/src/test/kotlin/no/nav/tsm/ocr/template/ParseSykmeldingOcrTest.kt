@@ -39,7 +39,9 @@ class ParseSykmeldingOcrTest {
                 { assertEquals("ICD-10", diagnose.hoveddiagnoseKodesystem, "diagnose.hoveddiagnoseKodesystem") },
                 { assertEquals("Y01", diagnose.hoveddiagnoseKode, "diagnose.hoveddiagnoseKode") },
                 { assertEquals("Smerter i penis", diagnose.hoveddiagnoseTekst, "diagnose.hoveddiagnoseTekst") },
-                { assertEquals(5, aktiviteter.size, "aktiviteter.size") },
+                { assertEquals(1, aktiviteter.size, "aktiviteter.size") },
+                { assertEquals("10.09.2026", aktiviteter.first().fom, "aktiviteter.first().fom") },
+                { assertEquals("20.09.2026", aktiviteter.first().tom, "aktiviteter.first().tom") },
                 { assertEquals("Helge Legesen", sykmelder.navn, "bekreftelse.navn") },
                 { assertEquals("777888", sykmelder.hprNummer, "bekreftelse.hpr") },
             )
