@@ -38,7 +38,6 @@ import java.awt.Cursor
 import java.awt.Dialog
 import java.awt.Dimension
 import java.awt.FlowLayout
-import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.GridBagConstraints
@@ -76,12 +75,35 @@ private data class CornerEntry(val index: Int, val point: Point) {
     override fun toString() = "Corner ${index + 1}: (${point.x}, ${point.y})"
 }
 
+/** What [deleteRemovedReferences] did: the reference crops it deleted, and those it could not delete. */
+internal data class ReferenceCleanup(val deleted: List<File>, val failed: List<File>)
+
+/**
+ * Deletes the PNGs of the reference points [removed] from a page, once the page is saved in [pageDirectory] without
+ * them. A file is only deleted when it is inside [pageDirectory], is neither one of the page's [kept] references nor
+ * its [templateImage], and exists; anything else is left alone, so a crop shared with another page or picked from
+ * elsewhere survives.
+ */
+internal fun deleteRemovedReferences(
+    removed: Collection<String>,
+    kept: Collection<String>,
+    templateImage: String,
+    pageDirectory: File,
+): ReferenceCleanup {
+    val directory = pageDirectory.canonicalFile.toPath()
+    val keep = (kept + templateImage).map { File(it).canonicalFile }.toSet()
+    val candidates = removed.map { File(it).canonicalFile }.distinct().filter { file ->
+        file !in keep && file.isFile && file.toPath().startsWith(directory) && file.toPath() != directory
+    }
+    val (deleted, failed) = candidates.partition { it.delete() }
+    return ReferenceCleanup(deleted, failed)
+}
+
 class TemplateView(
     template: Template?,
     private var templateFile: File? = null,
-    private val fieldCatalog: FieldCatalog = FieldCatalog(),
-    private val onSave: ((Template) -> Unit)? = null,
 ) : JPanel(BorderLayout()) {
+    private val fieldCatalog = FieldCatalog()
     private val navn = JTextField(template?.navn.orEmpty(), 18)
     private val beskrivelse = JTextField(template?.beskrivelse.orEmpty(), 18)
     private val fields = DefaultListModel<Felter>().apply { template?.felter?.forEach { addElement(it) } }
@@ -89,6 +111,12 @@ class TemplateView(
     private val references = DefaultListModel<String>().apply { template?.referansepunkter?.forEach { addElement(it) } }
     private val referenceList = JList(references)
     private val referenceRegions = mutableMapOf<String, Rectangle>()
+    /** Reference crops removed from the page since it was saved: their PNGs are deleted when it is saved next. */
+    private val removedReferences = mutableSetOf<String>()
+    private val removeReferenceButton = button("Remove reference point") { removeSelectedReference() }.apply {
+        isEnabled = false
+        toolTipText = "Remove the selected reference point. Its PNG is deleted from the page folder when you save the template."
+    }
     private val catalogFields = DefaultListModel<FieldDefinition>()
     private val catalogList = JList(catalogFields)
     private val catalogName = JTextField(16)
@@ -137,7 +165,7 @@ class TemplateView(
         }
     }
 
-    val showContoursButton: JButton = JButton("Contours").apply {
+    private val showContoursButton = JButton("Contours").apply {
         addActionListener {
             if (!requireImage()) return@addActionListener
             cancelSelection()
@@ -198,6 +226,7 @@ class TemplateView(
                     .also { toolTipText = value?.toString() }
         }
         referenceList.addListSelectionListener {
+            removeReferenceButton.isEnabled = referenceList.selectedIndex >= 0
             canvas.selectedReference = referenceList.selectedValue
             canvas.repaint()
         }
@@ -293,7 +322,7 @@ class TemplateView(
         add(button("Mark as field") {
             if (catalogList.selectedValue != null) assignCatalogField() else createFieldFromCell()
         }.apply {
-            toolTipText = "Use the selected detector to show feature points across the full image."
+            toolTipText = "Make the selected cell a field: the selected global field, or a new field you name."
         })
         add(button("Mark as checkbox") { markCheckbox() })
         add(button("Remove selected area") {
@@ -308,7 +337,7 @@ class TemplateView(
         add(button("Clear fields") { clearFields() }.apply {
             toolTipText = "Clear contents of all assigned fields, keeping their borders and assignments. Undo removal restores the contents."
         })
-        add(button("Remove area…") { startAreaAction("remove") })
+        add(button("Remove area…") { startRemoveArea() })
         add(button("Undo removal") {
             if (removedAreas.isNotEmpty()) {
                 removedAreas.removeLast()
@@ -317,15 +346,12 @@ class TemplateView(
         })
     }
 
-    private fun startAreaAction(action: String) {
+    private fun startRemoveArea() {
         if (!requireImage()) return
         cancelSelection()
-        areaAction = action
+        areaAction = "remove"
         canvas.creatingRegion = true
-        status.text = when (action) {
-            "text" -> "Dra området der den påkrevde teksten skal finnes. Esc avbryter."
-            else -> "Dra et område som skal fjernes fra malbildet. Esc avbryter."
-        }
+        status.text = "Dra et område som skal fjernes fra malbildet. Esc avbryter."
     }
 
     private fun selectedBox(): Rectangle? {
@@ -462,11 +488,9 @@ class TemplateView(
         status.text = "${cells.size} celler. ${canvas.gridEdits.size} rutenettendringer. Esc avslutter tegning."
     }
 
-    internal fun createFieldFromCell(requestName: () -> String? = {
-        JOptionPane.showInputDialog(this, "Feltnavn:", "Nytt felt", JOptionPane.PLAIN_MESSAGE)
-    }) {
+    private fun createFieldFromCell() {
         val bounds = selectedBox() ?: return
-        val name = requestName()
+        val name = JOptionPane.showInputDialog(this, "Feltnavn:", "Nytt felt", JOptionPane.PLAIN_MESSAGE)
             ?.trim()?.takeIf { it.isNotEmpty() } ?: return
         cancelSelection()
         val existing = (0 until fields.size()).firstOrNull {
@@ -631,21 +655,16 @@ class TemplateView(
                     canvas.creatingRegion = true
                     status.text = "Drag a distinctive reference crop. Use several crops spread across the page for perspective alignment."
                 },
-                button("Remove reference point") {
-                    val index = referenceList.selectedIndex
-                    if (index >= 0) {
-                        referenceRegions.remove(references.remove(index))
-                        refreshRegions()
-                    }
-                }))
+                removeReferenceButton))
         }, constraints.apply { gridy = 2; weighty = 0.65 })
     }
 
+    /** A titled list with its buttons below it, wrapped onto more rows when the sidebar is too narrow for one. */
     private fun listSection(title: String, list: JList<*>, vararg buttons: JButton) =
         JPanel(BorderLayout(0, 8)).apply {
             border = BorderFactory.createTitledBorder(title)
             add(JScrollPane(list), BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEADING, 4, 0)).apply {
+            add(JPanel(WrapLayout(FlowLayout.LEADING, hgap = 4, vgap = 4)).apply {
                 buttons.forEach { add(it) }
             }, BorderLayout.SOUTH)
         }
@@ -660,17 +679,34 @@ class TemplateView(
         return false
     }
 
-    internal fun editSelectedField(
-        requestName: (String) -> String? = { currentName ->
-            JOptionPane.showInputDialog(
-                this, "Feltnavn:", "Rediger felt", JOptionPane.PLAIN_MESSAGE, null, null, currentName,
-            )?.toString()
-        },
-    ) {
+    /**
+     * Removes the selected reference point from the page, after asking. Its PNG stays until the page is saved, so
+     * closing without saving keeps the page as it was; saving deletes it ([deleteRemovedReferences]).
+     */
+    private fun removeSelectedReference() {
+        val index = referenceList.selectedIndex
+        if (index < 0) return
+        val path = references[index]
+        val name = File(path).name
+        if (JOptionPane.showConfirmDialog(this,
+                "Remove the reference point $name?\nIts PNG file is deleted from the page folder when you save the template.",
+                "Remove reference point", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return
+        cancelSelection()
+        references.remove(index)
+        referenceRegions.remove(path)
+        removedReferences += path
+        if (!references.isEmpty) referenceList.selectedIndex = minOf(index, references.size() - 1)
+        refreshRegions()
+        status.text = "Reference point $name removed. Save the template to keep the change and delete its file."
+    }
+
+    private fun editSelectedField() {
         val index = fieldList.selectedIndex
         if (index < 0) return
         val field = fields[index]
-        val name = requestName(field.navn)?.trim() ?: return
+        val name = JOptionPane.showInputDialog(
+            this, "Feltnavn:", "Rediger felt", JOptionPane.PLAIN_MESSAGE, null, null, field.navn,
+        )?.toString()?.trim() ?: return
         if (name.isEmpty()) {
             status.text = "Feltnavnet kan ikke være tomt."
             return
@@ -695,9 +731,8 @@ class TemplateView(
 
     private fun canRotatePage(): Boolean {
         if (!requireImage()) return false
-        if (!fields.isEmpty || !references.isEmpty || canvas.gridEdits.isNotEmpty() ||
-            canvas.textArea != null || removedAreas.isNotEmpty()) {
-            status.text = "Rotate before assigning fields, reference points, text regions, grid edits or removing areas."
+        if (!fields.isEmpty || !references.isEmpty || canvas.gridEdits.isNotEmpty() || removedAreas.isNotEmpty()) {
+            status.text = "Rotate before assigning fields, reference points, grid edits or removing areas."
             return false
         }
         return true
@@ -729,7 +764,7 @@ class TemplateView(
         } catch (error: ExecutionException) {
             showError("Could not rotate the page", error.cause ?: error)
             return
-        } catch (error: InterruptedException) {
+        } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             status.text = "Page rotation interrupted."
             return
@@ -752,13 +787,10 @@ class TemplateView(
         applyPageRotation(guess.rotation, rotated)
     }
 
-    internal fun applyPageRotation(rotation: PageRotation, rotated: BufferedImage? = null): Boolean {
-        if (!canRotatePage()) return false
-        if (!rotation.isNone()) {
-            loadImage(File(imagePath), rotated ?: rotation.apply(requireNotNull(canvas.image)))
-            status.text = "${rotation.describe()}. Save the template to keep the corrected image."
-        }
-        return true
+    private fun applyPageRotation(rotation: PageRotation, rotated: BufferedImage) {
+        if (!canRotatePage()) return
+        loadImage(File(imagePath), rotated)
+        status.text = "${rotation.describe()}. Save the template to keep the corrected image."
     }
 
     private fun importPdf(file: File) {
@@ -831,7 +863,6 @@ class TemplateView(
         refreshRegions()
         imageTitle.text = "${file.name} — ${image.width} × ${image.height} px"
         status.text = "Velg et felt, eller opprett et nytt felt og marker området i bildet."
-        canvas.textBoxes = emptyList()
         canvas.repaint()
     }
 
@@ -856,8 +887,6 @@ class TemplateView(
             contourTree.selectionPath = TreePath(nodes[0].path)
         }
     }
-
-    private fun updateCornerTree(corners: List<Point>) = updateCornerTree(corners, "Corners")
 
     private fun updateCornerTree(corners: List<Point>, title: String) {
         val root = DefaultMutableTreeNode("$title (${corners.size})")
@@ -910,12 +939,14 @@ class TemplateView(
             .onFailure { showError("Could not save reference point", it) }
     }
 
-    internal fun addReference(bounds: Rectangle, file: File) {
+    private fun addReference(bounds: Rectangle, file: File) {
         val image = requireNotNull(canvas.image) { "Import a template image first." }
         require(bounds.width > 0 && bounds.height > 0 && Rectangle(0, 0, image.width, image.height).contains(bounds)) {
             "Reference point must be inside the template image."
         }
         PdfTemplateImages.writePng(image.getSubimage(bounds.x, bounds.y, bounds.width, bounds.height), file)
+        // A crop saved over one removed earlier is a reference again: its file must survive the next save.
+        removedReferences.remove(file.absolutePath)
         if (!references.contains(file.absolutePath)) references.addElement(file.absolutePath)
         referenceRegions[file.absolutePath] = Rectangle(bounds)
         referenceList.setSelectedValue(file.absolutePath, true)
@@ -951,6 +982,10 @@ class TemplateView(
             references.set(index, relocated)
             referenceRegions.remove(path)?.let { referenceRegions[relocated] = it }
         }
+        // The removed crops moved with the page folder; they are still to be deleted on the next save.
+        val removed = removedReferences.map { TemplateFiles.relocatePath(it, from, to) }
+        removedReferences.clear()
+        removedReferences += removed
         if (navn.text == from.name) navn.text = to.name
         templateFile = file
         refreshRegions()
@@ -973,22 +1008,28 @@ class TemplateView(
             gridEdits = canvas.gridEdits,
             referansepunkter = (0 until references.size()).map { references[it] },
         )
-        val saveCallback = onSave
-        val destination = if (saveCallback == null) templateFile ?: chooseTemplateDestination() ?: return else null
+        val destination = templateFile ?: chooseTemplateDestination() ?: return
         runCatching {
-            val directory = destination?.absoluteFile?.parentFile ?: File(imagePath).absoluteFile.parentFile
+            val directory = destination.absoluteFile.parentFile
             val file = File(directory, "template.png")
             PdfTemplateImages.writePng(requireNotNull(canvas.image), file)
             val saved = updated.copy(templateBilde = file.absolutePath)
-            if (saveCallback != null) {
-                saveCallback(saved)
-            } else {
-                TemplateFiles.write(requireNotNull(destination), saved)
-                templateFile = destination
-            }
+            TemplateFiles.write(destination, saved)
+            templateFile = destination
             imagePath = saved.templateBilde
+            // Only once the page no longer lists them: a failed save keeps both the page and its crops as they were.
+            deleteRemovedReferences(removedReferences, saved.referansepunkter, saved.templateBilde, directory).also { cleanup ->
+                removedReferences.clear()
+                removedReferences += cleanup.failed.map { it.path }
+            }
         }
-            .onSuccess { status.text = "Mal lagret: ${updated.navn}" }
+            .onSuccess { cleanup ->
+                status.text = "Mal lagret: ${updated.navn}" + when {
+                    cleanup.failed.isNotEmpty() -> ". Could not delete ${cleanup.failed.joinToString { it.name }}."
+                    cleanup.deleted.isNotEmpty() -> ". Deleted ${cleanup.deleted.size} removed reference point file(s)."
+                    else -> ""
+                }
+            }
             .onFailure { showError("Kunne ikke lagre malen", it) }
     }
 
@@ -1049,12 +1090,6 @@ internal class TemplateImageCanvas(
     var fields: List<Felter> = emptyList()
     var references: Map<String, Rectangle> = emptyMap()
     var selectedReference: String? = null
-    /** Where the required text is looked for, in image pixels; null = the whole page. */
-    var textArea: Rectangle? = null
-        set(value) { field = value; repaint() }
-    /** Text boxes read in the last required-text test, in image pixels; those with a word found are highlighted. */
-    var textBoxes: List<Pair<Rectangle, Boolean>> = emptyList()
-        set(value) { field = value; repaint() }
 
     fun replaceImageContent(value: BufferedImage) {
         val edits = gridEdits
@@ -1316,16 +1351,6 @@ internal class TemplateImageCanvas(
                     g.drawLine(x - 7, y, x + 7, y)
                     g.drawLine(x, y - 7, x, y + 7)
                 }
-            }
-            textBoxes.forEach { (box, found) -> drawRegion(box, if (found) Color(230, 120, 0) else Color(230, 120, 0, 90), found) }
-            textArea?.let { area ->
-                val dashed = BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, floatArrayOf(8f, 6f), 0f)
-                g.color = Color(230, 120, 0)
-                g.stroke = dashed
-                g.drawRect(bounds.x + (area.x.toDouble() * bounds.width / source.width).roundToInt(),
-                    bounds.y + (area.y.toDouble() * bounds.height / source.height).roundToInt(),
-                    (area.width.toDouble() * bounds.width / source.width).roundToInt(),
-                    (area.height.toDouble() * bounds.height / source.height).roundToInt())
             }
             if (displayingCells) {
                 fun drawEdit(edit: GridEdit, preview: Boolean) {

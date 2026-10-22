@@ -77,9 +77,6 @@ class ReferenceOverlayTest {
             assertSame(incoming, view.secondPanel.image)
             assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(80, 35))
             assertEquals(Color.BLUE.rgb, render(view.templatePanal).getRGB(81, 35))
-            view.loadReference(image())
-            assertFalse(applyButton(view).isEnabled)
-            assertEquals(0, referenceList(view).model.size)
         }
     }
 

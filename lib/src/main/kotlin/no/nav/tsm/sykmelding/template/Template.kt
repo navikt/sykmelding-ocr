@@ -3,6 +3,7 @@ package org.example.no.nav.tsm.ocr.template.template
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import no.nav.tsm.sykmelding.utils.GridEdit
 import no.nav.tsm.sykmelding.utils.GridSettings
+import java.awt.Rectangle
 
 @JsonIgnoreProperties(value = ["masks"])
 data class Template(
@@ -25,8 +26,10 @@ data class Felter(
     val type: FieldType = FieldType.TEXT,
 )
 
+val Felter.rectangle: Rectangle get() = Rectangle(x, y, bredde, hoyde)
+
 enum class FieldType {
-    TEXT, CHECKBOX, DATE, IDENT, NUMBER;
+    TEXT, CHECKBOX, DATE, IDENT, NUMBER, CODE;
 
     override fun toString() = when (this) {
         TEXT -> "Text"
@@ -34,10 +37,6 @@ enum class FieldType {
         DATE -> "Date"
         IDENT -> "Ident"
         NUMBER -> "Number"
+        CODE -> "Code"
     }
 }
-
-data class Felt(
-    val id: String,
-    val verdi: String
-)

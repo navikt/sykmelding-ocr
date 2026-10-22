@@ -1,5 +1,6 @@
 package no.nav.tsm.sykmelding.ocr
 
+import no.nav.tsm.sykmelding.model.CheckboxState
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import org.example.no.nav.tsm.ocr.template.template.FieldType
 import java.awt.BasicStroke
@@ -24,7 +25,7 @@ class CheckboxDetectionTest {
         for ((width, height) in listOf(20 to 20, 49 to 47, 75 to 67, 100 to 100)) {
             val box = field.copy(bredde = width, hoyde = height)
             for (type in imageTypes) {
-                assertEquals(CheckboxState.UNCHECKED, detectCheckbox(emptyBox(box, type), box))
+                assertEquals(CheckboxState.UNCHECKED, detectCheckbox(emptyBox(box, type), box).state)
             }
         }
     }
@@ -56,7 +57,7 @@ class CheckboxDetectionTest {
                         graphics.dispose()
                     }
                     assertEquals(
-                        CheckboxState.CHECKED, detectCheckbox(image, box),
+                        CheckboxState.CHECKED, detectCheckbox(image, box).state,
                         "$mark in ${width}x$height with image type $type",
                     )
                 }
@@ -75,14 +76,26 @@ class CheckboxDetectionTest {
             90 to CheckboxState.CHECKED,
             900 to CheckboxState.CHECKED,
         )) {
-            assertEquals(expected, detectCheckbox(interiorInk(pixels), field), "$pixels / 900 pixels")
+            val reading = detectCheckbox(interiorInk(pixels), field)
+            assertEquals(expected, reading.state, "$pixels / 900 pixels")
+            // Black ink is both dark and ink.
+            assertEquals(pixels / 900.0, reading.darkCoverage, "dark share of $pixels / 900 pixels")
+            assertEquals(pixels / 900.0, reading.inkCoverage, "ink share of $pixels / 900 pixels")
         }
     }
 
     @Test
+    fun `the coverage is given as percentages`() {
+        assertEquals("10.0 % dark, 10.0 % ink", detectCheckbox(interiorInk(90), field).coverageText)
+        assertEquals("0.0 % dark, 16.7 % ink", detectCheckbox(interiorInk(150, Color(180, 180, 180)), field).coverageText)
+        assertEquals("too small to measure", detectCheckbox(emptyBox(), field.copy(bredde = 10, hoyde = 10)).coverageText)
+    }
+
+    @Test
     fun `faint marks are uncertain rather than unchecked`() {
+        // Grey ink: none of it dark, all of it ink.
         assertEquals(
-            CheckboxState.UNCERTAIN,
+            CheckboxReading(CheckboxState.UNCERTAIN, darkCoverage = 0.0, inkCoverage = 150 / 900.0),
             detectCheckbox(interiorInk(150, Color(180, 180, 180)), field),
         )
     }
@@ -91,12 +104,12 @@ class CheckboxDetectionTest {
     fun `blue ink is detected and transparent pixels are treated as white`() {
         assertEquals(
             CheckboxState.CHECKED,
-            detectCheckbox(interiorInk(150, Color.BLUE), field),
+            detectCheckbox(interiorInk(150, Color.BLUE), field).state,
         )
         val transparent = BufferedImage(70, 70, BufferedImage.TYPE_INT_ARGB)
-        assertEquals(CheckboxState.UNCHECKED, detectCheckbox(transparent, field))
+        assertEquals(CheckboxReading(CheckboxState.UNCHECKED, 0.0, 0.0), detectCheckbox(transparent, field))
         transparent.setRGB(25, 25, Color(0, 0, 0, 10).rgb)
-        assertEquals(CheckboxState.UNCHECKED, detectCheckbox(transparent, field))
+        assertEquals(CheckboxReading(CheckboxState.UNCHECKED, 0.0, 0.0), detectCheckbox(transparent, field))
     }
 
     @Test
@@ -109,13 +122,13 @@ class CheckboxDetectionTest {
         } finally {
             graphics.dispose()
         }
-        assertEquals(CheckboxState.UNCHECKED, detectCheckbox(image, field))
+        assertEquals(CheckboxReading(CheckboxState.UNCHECKED, 0.0, 0.0), detectCheckbox(image, field))
     }
 
     @Test
     fun `too few interior pixels is uncertain`() {
         assertEquals(
-            CheckboxState.UNCERTAIN,
+            CheckboxReading(CheckboxState.UNCERTAIN, darkCoverage = null, inkCoverage = null),
             detectCheckbox(emptyBox(), field.copy(bredde = 10, hoyde = 10)),
         )
     }

@@ -1,6 +1,7 @@
 package no.nav.tsm.sykmelding.ocr
 
 import no.nav.tsm.sykmelding.model.Bidiagnose
+import no.nav.tsm.sykmelding.model.CheckboxState
 import no.nav.tsm.sykmelding.model.OcrParsedMeldingTilArbeidsgiver
 import no.nav.tsm.sykmelding.model.OcrParserAktivitet
 import no.nav.tsm.sykmelding.model.OcrParserAktivitet.Arbeidsgiver
@@ -16,56 +17,58 @@ import no.nav.tsm.sykmelding.model.OcrParserTilleggsinformasjon
 import no.nav.tsm.sykmelding.template.TemplateMatchResult
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.Template
 import org.slf4j.LoggerFactory
 import java.io.File
-
-interface IDoOcr {
-    fun doOcr(pdf: File): OcrParserSykmelding?
-    fun readOcrFields(templateMatchResult: TemplateMatchResult.Matched): List<TemplateOcrFiledResult>
-}
-
-class TemplateOcrFiledResult(
-    val template: Template,
-    val fields: Map<Felter, String?>,
-)
 
 class ParseSykmeldingOcr(
     private val ocr: Ocr,
     private val templateMatcher: TemplateMatcher = TemplateMatcher(),
-) : IDoOcr {
+) {
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    override fun doOcr(pdf: File): OcrParserSykmelding? {
+     fun doOcr(pdf: File): OcrParserSykmelding? {
         val sykmeldingTemplate = matchTemplate(pdf)
         if (sykmeldingTemplate !is TemplateMatchResult.Matched) {
             return null
         }
-        val ocrValues = readOcrValues(sykmeldingTemplate, sykmeldingTemplate.template.manifest.navn)
+        val pages = readPages(sykmeldingTemplate, sykmeldingTemplate.template.manifest.navn)
 
-        val excludedFields = setOf("tittel.etternavn", "tittel.fornavn", "tittel.fnr")
-        val valuesByName = buildMap<String, String?> {
-            ocrValues.forEach { fieldsOnPage ->
-                fieldsOnPage
-                    .filterKeys { it.navn !in excludedFields }
-                    .forEach { (field, value) ->
-                    require(!containsKey(field.navn)) {
-                        "Duplicate field name: ${field.navn}"
-                    }
-                    put(field.navn, value)
-                }
-            }
+        val valuesByName = byFieldName(pages.map { page ->
+            page.values.filterKeys { !it.type.skipsOcr }.mapValues { (_, text) -> text.text }
+        })
+        val checkboxReadings = byFieldName(pages.map { it.checkboxes })
+        checkboxReadings.filterValues { it.state == CheckboxState.UNCERTAIN }.takeIf { it.isNotEmpty() }?.let { uncertain ->
+            logger.warn("Uncertain checkboxes in template ${sykmeldingTemplate.template.manifest.navn}: " +
+                uncertain.entries.joinToString { (name, reading) -> "$name (${reading.coverageText})" })
         }
+        val checkboxesByName = checkboxReadings.mapValues { it.value.state }
+
         if(sykmeldingTemplate.template.manifest.navn == "0.2019" || sykmeldingTemplate.template.manifest.navn == "03.2019") {
-            val sykmelding = threePage2019TemplateMapToOcrParsedSykmelding(valuesByName)
+            val sykmelding = threePage2019TemplateMapToOcrParsedSykmelding(valuesByName, checkboxesByName)
             return sykmelding
         }
 
         return null
     }
 
-    private fun threePage2019TemplateMapToOcrParsedSykmelding(valuesByName: Map<String, String?>): OcrParserSykmelding {
+    private fun <T> byFieldName(pages: List<Map<Felter, T>>): Map<String, T> = buildMap {
+        pages.forEach { fieldsOnPage ->
+            fieldsOnPage
+                .filterKeys { it.navn !in EXCLUDED_FIELDS }
+                .forEach { (field, value) ->
+                    require(!containsKey(field.navn)) {
+                        "Duplicate field name: ${field.navn}"
+                    }
+                    put(field.navn, value)
+                }
+        }
+    }
+
+    private fun threePage2019TemplateMapToOcrParsedSykmelding(
+        valuesByName: Map<String, String?>,
+        checkboxes: Map<String, CheckboxState>,
+    ): OcrParserSykmelding {
         val pasient = OcrParserPasient(
             etternavn = valuesByName["pasient.etternavn"],
             fornavn = valuesByName["pasient.fornavn"],
@@ -96,16 +99,16 @@ class ParseSykmeldingOcr(
             ),
             lovfestetFraversgrunn = valuesByName["diagnose.lovfestetfravarsgrunn"],
             fraversgrunnBeskrivelse = valuesByName["diagnose.fravarsgrunnBeskrivelse"],
-            svangerskap = valuesByName["diagnose.svangerskapsrelatert"] != null && valuesByName["diagnose.svangerskapsrelatert"]!!.toBoolean(), // Korleis skal vi tolke booleans på checkboxes?
-            yrkesskade = valuesByName["diagnose.yrkesskade"] != null && valuesByName["diagnose.yrkesskade"]!!.toBoolean(),
+            svangerskap = checkboxes.state("diagnose.svangerskapsrelatert"),
+            yrkesskade = checkboxes.state("diagnose.yrkesskade"),
             skadedato = valuesByName["diagnose.yrkesskade.skadedato"],
-            skjermingPaakrevet = valuesByName["diagnose.skjermes"] != null && valuesByName["diagnose.skjermes"]!!.toBoolean(),
+            skjermingPaakrevet = checkboxes.state("diagnose.skjermes"),
         )
 
-        val aktiviteter = mapThreePage2019Activities(valuesByName)
+        val aktiviteter = mapThreePage2019Activities(valuesByName, checkboxes)
 
         val ocrParserPrognose = OcrParserPrognose(
-            arbeidsforEtterPeriode = valuesByName["prognose.arbeidsforEtterPerioden"] != null && valuesByName["prognose.arbeidsforEtterPerioden"]!!.toBoolean(),
+            arbeidsforEtterPeriode = checkboxes.state("prognose.arbeidsforEtterPerioden"),
             beskrivHensyn = valuesByName["prognose.arbeidsforEtterPerioden.beskrivelse"],
         )
 
@@ -116,7 +119,7 @@ class ParseSykmeldingOcr(
         )
 
         val ocrParsedTilleggsinformasjon = OcrParserTilleggsinformasjon(
-            bistandNavOnskes = valuesByName["melding.nav.bistand"] != null && valuesByName["melding.nav.bistand"]!!.toBoolean(),
+            bistandNavOnskes = checkboxes.state("melding.nav.bistand"),
             beskrivBistandOnskes = valuesByName["melding.nav.beskrivelse"],
         )
 
@@ -158,7 +161,10 @@ class ParseSykmeldingOcr(
         return ocrParsedSykmelding
     }
 
-    internal fun mapThreePage2019Activities(valuesByName: Map<String, String?>): List<OcrParserAktivitet> =
+    internal fun mapThreePage2019Activities(
+        valuesByName: Map<String, String?>,
+        checkboxes: Map<String, CheckboxState>,
+    ): List<OcrParserAktivitet> =
         listOf(
             OcrParserAktivitet.Avventende(
                 fom = valuesByName["aktivitet.avventende.fom"],
@@ -168,13 +174,13 @@ class ParseSykmeldingOcr(
                 fom = valuesByName["aktivitet.gradert.fom"],
                 tom = valuesByName["aktivitet.gradert.tom"],
                 grad = valuesByName["aktivitet.gradert.grad"]?.toIntOrNull(),
-                reisetilskudd = valuesByName["aktivitet.gradert.reisetilskudd"] != null && valuesByName["aktivitet.gradert.reisetilskudd"]!!.toBoolean(),
+                reisetilskudd = checkboxes.state("aktivitet.gradert.reisetilskudd"),
             ),
             OcrParserAktivitet.IkkeMulig(
                 fom = valuesByName["aktivitet.fom"],
                 tom = valuesByName["aktivitet.tom"],
-                medisinskArsak = valuesByName["aktivitet.medisinskeArsaker"] != null && valuesByName["aktivitet.medisinskeArsaker"]!!.toBoolean(),
-                arbeidsrelatertArsak = valuesByName["aktivitet.forholdArbeidsplassen"] != null && valuesByName["aktivitet.forholdArbeidsplassen"]!!.toBoolean(),
+                medisinskArsak = checkboxes.state("aktivitet.medisinskeArsaker"),
+                arbeidsrelatertArsak = checkboxes.state("aktivitet.forholdArbeidsplassen"),
             ),
             OcrParserAktivitet.Behandlingsdager(
                 fom = valuesByName["aktivitet.behandlingsdager.fom"],
@@ -186,14 +192,6 @@ class ParseSykmeldingOcr(
                 tom = valuesByName["aktivitet.reisetilskudd.tom"],
             ),
         ).filter { !it.fom.isNullOrBlank() && !it.tom.isNullOrBlank() }
-
-    override fun readOcrFields(
-        templateMatchResult: TemplateMatchResult.Matched
-    ): List<TemplateOcrFiledResult> {
-        return templateMatchResult.templateMatch.map {
-            TemplateOcrFiledResult(template = it.key, ocr.parsePageWithFields(it.key, it.value))
-        }
-    }
 
     private fun matchTemplate(pdf: File): TemplateMatchResult {
         val sykmeldingTemplate = templateMatcher.matchPdf(pdf)
@@ -207,14 +205,14 @@ class ParseSykmeldingOcr(
     }
 
 
-    private fun readOcrValues(
+    private fun readPages(
         sykmeldingTemplate: TemplateMatchResult.Matched,
         templateVersion: String
-    ): List<Map<Felter, String?>> = sykmeldingTemplate.templateMatch.map { (template, image) ->
+    ): List<PageRead> = sykmeldingTemplate.templateMatch.map { (template, image) ->
         logger.info("template: $templateVersion, page: ${template.navn}")
         when (templateVersion) {
             "03.2019", "0.2019" -> {
-                ocr.parsePageWithFields(template, image)
+                ocr.readPage(image, template.felter)
             }
 
             else -> {
@@ -222,4 +220,9 @@ class ParseSykmeldingOcr(
             }
         }
     }
+
+    private companion object {
+        val EXCLUDED_FIELDS = setOf("tittel.etternavn", "tittel.fornavn", "tittel.fnr")
+    }
 }
+private fun Map<String, CheckboxState>.state(name: String): CheckboxState = this[name] ?: CheckboxState.UNCERTAIN

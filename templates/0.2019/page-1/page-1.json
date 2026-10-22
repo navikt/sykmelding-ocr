@@ -2,30 +2,6 @@
   "navn" : "test small",
   "beskrivelse" : "",
   "felter" : [ {
-    "x" : 1179,
-    "y" : 819,
-    "bredde" : 1034,
-    "hoyde" : 151,
-    "navn" : "tittel.fornavn",
-    "id" : "a451c6c2-291e-4e30-b766-d874c93af6f8",
-    "type" : "Text"
-  }, {
-    "x" : 134,
-    "y" : 820,
-    "bredde" : 1039,
-    "hoyde" : 153,
-    "navn" : "tittel.etternavn",
-    "id" : "372f2a16-17a9-4e39-bcd2-73c104a029e9",
-    "type" : "Text"
-  }, {
-    "x" : 2220,
-    "y" : 815,
-    "bredde" : 849,
-    "hoyde" : 154,
-    "navn" : "tittel.fnr",
-    "id" : "41c73496-c7e2-48f6-b731-12a47de80508",
-    "type" : "Ident"
-  }, {
     "x" : 1608,
     "y" : 1280,
     "bredde" : 1461,
@@ -120,7 +96,7 @@
     "hoyde" : 128,
     "navn" : "hoveddiagnose.kode",
     "id" : "580d2f52-585c-4a18-b2ae-91f7f902e99d",
-    "type" : "Text"
+    "type" : "Code"
   }, {
     "x" : 2071,
     "y" : 2846,
@@ -144,7 +120,7 @@
     "hoyde" : 129,
     "navn" : "bidiagnose.kode",
     "id" : "7232f088-09a7-4052-89fc-93c5aad4ebb7",
-    "type" : "Text"
+    "type" : "Code"
   }, {
     "x" : 2071,
     "y" : 3050,
@@ -201,6 +177,38 @@
     "navn" : "diagnose.skjermes",
     "id" : "88a0ba34-6755-4f3f-926c-619ce052cc8c",
     "type" : "Checkbox"
+  }, {
+    "x" : 1608,
+    "y" : 1034,
+    "bredde" : 1461,
+    "hoyde" : 123,
+    "navn" : "startdatoSykefravar",
+    "id" : "fd0a554d-01d0-46f9-8790-6b956d12f755",
+    "type" : "Date"
+  }, {
+    "x" : 2220,
+    "y" : 874,
+    "bredde" : 849,
+    "hoyde" : 95,
+    "navn" : "tittel.fnr",
+    "id" : "41c73496-c7e2-48f6-b731-12a47de80508",
+    "type" : "Ident"
+  }, {
+    "x" : 134,
+    "y" : 874,
+    "bredde" : 1039,
+    "hoyde" : 99,
+    "navn" : "tittel.etternavn",
+    "id" : "372f2a16-17a9-4e39-bcd2-73c104a029e9",
+    "type" : "Text"
+  }, {
+    "x" : 1179,
+    "y" : 874,
+    "bredde" : 1034,
+    "hoyde" : 96,
+    "navn" : "tittel.fornavn",
+    "id" : "a451c6c2-291e-4e30-b766-d874c93af6f8",
+    "type" : "Text"
   } ],
   "templateBilde" : "template.png",
   "gridSettings" : {
@@ -209,6 +217,12 @@
     "minimumCellSize" : 12,
     "inkThreshold" : 225
   },
-  "gridEdits" : [ ],
-  "referansepunkter" : [ "a.png", "sykmelding.png", "nav-eksemplar-side-1-3.png", "format.png" ]
+  "gridEdits" : [ {
+    "tool" : "Horizontal line",
+    "x1" : 130,
+    "y1" : 873,
+    "x2" : 3072,
+    "y2" : 873
+  } ],
+  "referansepunkter" : [ ]
 }

@@ -4,8 +4,6 @@
  * This generated file contains a sample Kotlin library project to get you started.
  * For more details on building Java & JVM projects, please refer to https://docs.gradle.org/9.7.1/userguide/building_java_projects.html in the Gradle documentation.
  */
-val javacppVersion = "1.5.14"
-val opencv = "4.14.0-1.5.14$javacppVersion"
 version = file("./version").readText().trim()
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
@@ -30,16 +28,11 @@ dependencies {
 
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     implementation(libs.pdfbox)
-    // This dependency is exported to consumers, that is to say found on their compile classpath.
-    api(libs.commons.math3)
     implementation(libs.bytedeco.tesseract)
     implementation(libs.bytedeco.tesseract.platform)
     implementation(libs.bytedeco.javacv)
-    // This dependency is used internally, and not exposed to consumers on their own compile classpath.
-    implementation(libs.guava)
 
     implementation(libs.logback.classic)
-    implementation(libs.logback.encoder)
 
     implementation(libs.jackson.module.kotlin)
 }

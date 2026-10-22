@@ -31,9 +31,9 @@ sealed interface PreviewContent {
                 ?: Unsupported("No preview for ${file.contentType ?: "this file type"}.")
         }
 
-        fun renderPdfPage(bytes: ByteArray, pageIndex: Int): BufferedImage = Loader.loadPDF(bytes).use { document ->
+        fun renderPdfPage(bytes: ByteArray, pageIndex: Int, dpi: Float = PDF_DPI): BufferedImage = Loader.loadPDF(bytes).use { document ->
             require(pageIndex in 0 until document.numberOfPages) { "Invalid page ${pageIndex + 1}" }
-            PDFRenderer(document).renderImageWithDPI(pageIndex, PDF_DPI, ImageType.RGB)
+            PDFRenderer(document).renderImageWithDPI(pageIndex, dpi, ImageType.RGB)
         }
 
         internal fun isPdf(bytes: ByteArray): Boolean {

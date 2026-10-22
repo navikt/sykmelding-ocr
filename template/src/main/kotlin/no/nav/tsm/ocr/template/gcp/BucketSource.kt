@@ -27,11 +27,19 @@ data class BucketFile(
     val fileName: String get() = name.substringAfterLast('/')
     val extension: String get() = fileName.substringAfterLast('.', "").lowercase()
     val isPdf: Boolean get() = extension == "pdf" || contentType.equals("application/pdf", ignoreCase = true)
+    val isXml: Boolean get() = extension == "xml" || contentType?.substringBefore(';')?.trim()?.lowercase() in XML_TYPES
     val reference: DocumentReference? get() = DocumentReference.parse(name)
+
+    val documentPrefix: String? get() = reference?.let { name.substring(0, name.lastIndexOf('/') + 1) + it.document + "_" }
+
+    private companion object {
+        val XML_TYPES = setOf("application/xml", "text/xml")
+    }
 }
 
-/** syfosmpapirmottak names objects `<journalpostId>_<dokumentInfoId>_<filUUID>.<filType>`. */
 data class DocumentReference(val journalpostId: String, val dokumentInfoId: String, val fileUuid: String) {
+    val document: String get() = "${journalpostId}_$dokumentInfoId"
+
     companion object {
         private val pattern = Regex("""(\d+)_(\d+)_([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(\.[^.]+)?""")
 

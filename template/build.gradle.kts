@@ -12,10 +12,12 @@ repositories {
 }
 
 dependencies {
-    implementation(libs.jackson.module.kotlin)
     implementation(libs.bytedeco.javacv)
     implementation(libs.pdfbox)
     implementation(libs.google.cloud.storage)
+    implementation(libs.papirsykemelding)
+    // papirsykemelding only brings JAXB at runtime; JAXBContext/Unmarshaller are needed to compile the parser.
+    implementation(libs.jaxb.api)
     implementation(project(":lib"))
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation(libs.junit.jupiter.engine)
@@ -24,23 +26,7 @@ dependencies {
 
 
 tasks.named<Test>("test") {
+    jvmArgs = listOf("-Xms512m","-Xmx1024m")
     // Use JUnit Platform for unit tests.
-    useJUnitPlatform {
-        excludeTags("ocr-smoke")
-    }
-}
-
-tasks.register<Test>("ocrSmokeTest") {
-    description = "Runs OCR on svenskmann.pdf and prints fields for manual inspection."
-    group = "verification"
-    testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
-    useJUnitPlatform {
-        includeTags("ocr-smoke")
-    }
-    // Full-resolution matching also needs native OpenCV memory outside the Java heap.
-    maxHeapSize = "1g"
-    systemProperty("org.bytedeco.javacpp.maxPhysicalBytes", "8G")
-    testLogging.showStandardStreams = true
-    outputs.upToDateWhen { false }
+    useJUnitPlatform()
 }

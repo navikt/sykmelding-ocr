@@ -3,10 +3,14 @@ package no.nav.tsm.ocr.template.view
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import org.example.no.nav.tsm.ocr.template.template.Template
 import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
+import no.nav.tsm.ocr.template.gcp.CHECKBOX_READ
+import no.nav.tsm.ocr.template.gcp.checkboxText
 import no.nav.tsm.sykmelding.ocr.Ocr
 import no.nav.tsm.sykmelding.ocr.PSM_MODE
 import no.nav.tsm.sykmelding.ocr.ReferencesRectangle
 import no.nav.tsm.sykmelding.ocr.SykmeldingOcr
+import no.nav.tsm.sykmelding.ocr.detectCheckbox
+import no.nav.tsm.sykmelding.ocr.skipsOcr
 import no.nav.tsm.sykmelding.template.parsePageNumber
 import no.nav.tsm.sykmelding.utils.ImagePoint
 import no.nav.tsm.sykmelding.utils.ReferenceAlignment
@@ -30,8 +34,7 @@ import kotlin.math.roundToInt
 
 class ImageComparisonView(
     private val findReferences: (BufferedImage, BufferedImage) -> List<ReferencesRectangle> = { image, reference ->
-        val matcher = SykmeldingOcr(Ocr())
-        PointerScope().use { matcher.findReferences(image, reference) }
+        PointerScope().use { SykmeldingOcr().findReferences(image, reference) }
     },
     private val recognizeText: (BufferedImage, PSM_MODE) -> String? = { image, mode ->
         Ocr().parse(image, psmMode = mode)
@@ -40,7 +43,6 @@ class ImageComparisonView(
 ) : JPanel(BorderLayout()) {
     val templatePanal = ImagePanel()
     val secondPanel = ImagePanel()
-    private val panels = listOf(templatePanal, secondPanel)
     private var configuration: Template? = null
     private var configurationApplied = false
     private var alignment: ReferenceAlignment? = null
@@ -60,7 +62,7 @@ class ImageComparisonView(
     private val fieldOcrDetails = textArea("Apply configuration and select a field to read its value.")
     private var fieldOcrReadStarted = false
     private val readFieldButton = JButton("Read field").apply {
-        toolTipText = "Read the selected reference-adjusted incoming field using block OCR."
+        toolTipText = "Read the selected reference-adjusted incoming field: text with block OCR, a checkbox by the ink inside its frame."
         isEnabled = false
         addActionListener { readField() }
     }
@@ -168,21 +170,15 @@ class ImageComparisonView(
             }
         }
         val images = JPanel(GridLayout(1, 2, 8, 0)).apply {
-            minimumSize = Dimension(400, 300)
             add(labeledPanel("Template — reference", templatePanal))
             add(labeledPanel("Incoming document — reference-adjusted fields, unchanged image", secondPanel))
         }
         val sidebar = JScrollPane(createSidebar()).apply {
             preferredSize = Dimension(360, 700)
-            minimumSize = Dimension(280, 300)
             horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
             border = BorderFactory.createEmptyBorder()
         }
-        add(JSplitPane(JSplitPane.HORIZONTAL_SPLIT, images, sidebar).apply {
-            resizeWeight = 1.0
-            isContinuousLayout = true
-            border = BorderFactory.createEmptyBorder()
-        }, BorderLayout.CENTER)
+        add(splitPane(JSplitPane.HORIZONTAL_SPLIT, images, sidebar, location = 0.75, weight = 1.0), BorderLayout.CENTER)
     }
 
     fun loadConfiguration(file: File): Template {
@@ -234,23 +230,6 @@ class ImageComparisonView(
             else -> "Configuration loaded — apply reference images before applying configuration."
         })
         return template
-    }
-
-    fun loadReference(image: BufferedImage) {
-        cancelResize()
-        clearReferenceMatches()
-        templatePanal.load(image)
-        originalTemplateImage = image
-        configuration = null
-        configurationApplied = false
-        fields.clear()
-        references.clear()
-        referenceImages = emptyList()
-        originalReferenceImages = emptyList()
-        summary.text = "No configuration loaded."
-        summary.toolTipText = null
-        resetSecondImage()
-        onStatus("Reference image loaded — load a configuration to display its fields.")
     }
 
     fun loadSecond(image: BufferedImage) {
@@ -338,6 +317,16 @@ class ImageComparisonView(
         val field = fieldList.selectedValue ?: return
         val transform = alignment?.transform ?: return
         if (!configurationApplied) return
+        if (field.type.skipsOcr) {
+            // The crop is the field alone, at the template's size: the checkbox is all of it.
+            startOcr(
+                OcrTarget.FIELD, { cropAlignedField(image, field, transform) },
+                PSM_MODE.PSM_SINGLE_BLOCK, fieldOcrDetails, "Reading checkbox '${field.navn}'", "Could not read checkbox",
+                details = { CHECKBOX_READ },
+                read = { crop -> checkboxText(detectCheckbox(crop, field.copy(x = 0, y = 0))) },
+            ) { reading -> "Checkbox ${field.navn} (${field.id}): $reading" }
+            return
+        }
         startOcr(
             OcrTarget.FIELD, { cropAlignedField(image, field, transform) },
             PSM_MODE.PSM_SINGLE_BLOCK, fieldOcrDetails, "Reading field '${field.navn}'", "Could not read field",
@@ -374,7 +363,7 @@ class ImageComparisonView(
         val match = incomingMatches.getOrNull(referenceList.selectedIndex) ?: return
         startOcr(
             OcrTarget.REFERENCE, { bgrCopy(image.getSubimage(match.x, match.y, match.width, match.height)) },
-            mode, resultDetails, progress, failure, fallbackMode, interpret,
+            mode, resultDetails, progress, failure, fallbackMode, interpret = interpret,
         )
     }
 
@@ -386,16 +375,12 @@ class ImageComparisonView(
         progress: String,
         failure: String,
         fallbackMode: PSM_MODE? = null,
+        details: (String) -> String = { text -> "Recognized text:\n$text" },
+        read: (BufferedImage) -> String = { crop -> recognize(crop, mode, fallbackMode) },
         interpret: (String) -> String,
     ) {
         val worker = object : SwingWorker<String, Unit>() {
-            override fun doInBackground(): String {
-                val crop = cropImage()
-                val text = checkNotNull(recognizeText(crop, mode)) { "OCR returned no result." }
-                return if (text.isBlank() && fallbackMode != null)
-                    checkNotNull(recognizeText(crop, fallbackMode)) { "OCR returned no result." }
-                else text
-            }
+            override fun doInBackground(): String = read(cropImage())
 
             override fun done() {
                 if (ocrWorker !== this || isCancelled) return
@@ -406,11 +391,11 @@ class ImageComparisonView(
                     val result = try {
                         interpret(text)
                     } catch (e: IllegalArgumentException) {
-                        resultDetails.text = "${e.message}\n\nRecognized text:\n$text"
+                        resultDetails.text = "${e.message}\n\n${details(text)}"
                         onStatus("$failure: ${e.message}")
                         return
                     }
-                    resultDetails.text = "$result\n\nRecognized text:\n$text"
+                    resultDetails.text = "$result\n\n${details(text)}"
                     onStatus(result)
                 } catch (e: ExecutionException) {
                     resultDetails.text = "$failure: ${(e.cause ?: e).message}"
@@ -434,6 +419,14 @@ class ImageComparisonView(
         worker.execute()
     }
 
+    /** The text OCR reads in [crop] with [mode]; read again with [fallbackMode], if any, when that is blank. */
+    private fun recognize(crop: BufferedImage, mode: PSM_MODE, fallbackMode: PSM_MODE?): String {
+        val text = checkNotNull(recognizeText(crop, mode)) { "OCR returned no result." }
+        return if (text.isBlank() && fallbackMode != null)
+            checkNotNull(recognizeText(crop, fallbackMode)) { "OCR returned no result." }
+        else text
+    }
+
     private fun clearReferenceOcr() {
         cancelOcr(OcrTarget.REFERENCE)
         pageNumberDetails.text = "Select a matched reference, then read its page number."
@@ -446,7 +439,8 @@ class ImageComparisonView(
 
     private fun clearFieldOcr() {
         cancelOcr(OcrTarget.FIELD)
-        fieldOcrDetails.text = "Apply configuration and select a field to read its value."
+        fieldOcrDetails.text = if (fieldList.selectedValue?.type?.skipsOcr == true) "Apply configuration, then read whether the checkbox is checked."
+            else "Apply configuration and select a field to read its value."
         fieldOcrDetails.caretPosition = 0
         if (fieldOcrReadStarted) onStatus("Field OCR result cleared — read the selected incoming field again.")
         fieldOcrReadStarted = false
@@ -837,10 +831,6 @@ class ImageComparisonView(
             }, BorderLayout.CENTER)
         }, BorderLayout.CENTER)
     }
-
-    fun showOrbs(show: Boolean = true) = panels.forEach { it.showOrbs(show) }
-    fun showLines(show: Boolean = true) = panels.forEach { it.showLines(show) }
-    fun showGrids(mode: GridMode?) = panels.forEach { it.showGrids(mode) }
 
     private fun labeledPanel(label: String, panel: ImagePanel) = JPanel(BorderLayout()).apply {
         border = BorderFactory.createTitledBorder(label)

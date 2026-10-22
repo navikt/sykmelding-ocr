@@ -1,48 +1,41 @@
 package no.nav.tsm.ocr.template.gcp
 
+import no.nav.tsm.ocr.template.view.WrapLayout
+import no.nav.tsm.ocr.template.view.ZoomCanvas
+import no.nav.tsm.ocr.template.view.ZoomControls
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
 import java.awt.Dimension
-import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
-import java.awt.Rectangle
+import java.awt.Point
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.util.concurrent.ExecutionException
 import javax.swing.BorderFactory
+import javax.swing.Box
 import javax.swing.JButton
-import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JTextArea
-import javax.swing.JViewport
-import javax.swing.Scrollable
 import javax.swing.SwingConstants
 import javax.swing.SwingWorker
+import javax.swing.Timer
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-/** Right-hand preview: PDF pages (rendered on demand, off the EDT), images, or text. */
 internal class FilePreviewPanel : JPanel(BorderLayout(4, 4)) {
-    private enum class Zoom(private val label: String) {
-        FIT_PAGE("Fit page"), FIT_WIDTH("Fit width");
-
-        override fun toString() = label
-    }
-
     private val title = JLabel(" ").apply { font = font.deriveFont(Font.BOLD) }
     private val canvas = PageCanvas()
     private val previous = JButton("◀ Page").apply { addActionListener { showPage(pageIndex - 1) } }
     private val next = JButton("Page ▶").apply { addActionListener { showPage(pageIndex + 1) } }
     private val pageLabel = JLabel()
-    private val zoom = JComboBox(Zoom.entries.toTypedArray()).apply {
-        addActionListener { canvas.fitWidth = selectedItem == Zoom.FIT_WIDTH }
-    }
-    private val pageControls = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply {
-        add(previous); add(pageLabel); add(next); add(zoom)
+    private val zoom = ZoomControls(canvas, "a PDF page at its size on paper, or one pixel of an image per screen pixel")
+    private val pageControls = JPanel(WrapLayout(hgap = 4)).apply {
+        add(previous); add(pageLabel); add(next); add(Box.createHorizontalStrut(10)); add(zoom)
     }
     private val text = JTextArea().apply { isEditable = false; font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
     private val message = JLabel("", SwingConstants.CENTER)
@@ -53,25 +46,33 @@ internal class FilePreviewPanel : JPanel(BorderLayout(4, 4)) {
     private var pageCount = 0
     private var pageIndex = 0
     private val pages = mutableMapOf<Int, BufferedImage>()
-    /** Bumped for every new document, so page renders for an earlier one are dropped. */
+    private var sharp: SharpPage? = null
+    private var sharpening: SharpPage? = null
     private var generation = 0
+    private val sharpenDelay = Timer(SHARPEN_DELAY_MS) { sharpen() }.apply { isRepeats = false }
 
     init {
         border = BorderFactory.createTitledBorder("Preview")
-        add(JPanel(BorderLayout()).apply { add(title, BorderLayout.CENTER); add(pageControls, BorderLayout.EAST) }, BorderLayout.NORTH)
-        content.add(JScrollPane(canvas).apply { verticalScrollBar.unitIncrement = 24 }, IMAGE)
+        add(JPanel(BorderLayout()).apply { add(title, BorderLayout.NORTH); add(pageControls, BorderLayout.CENTER) }, BorderLayout.NORTH)
+        content.add(JScrollPane(canvas).apply { verticalScrollBar.unitIncrement = 24; horizontalScrollBar.unitIncrement = 24 }, IMAGE)
         content.add(JScrollPane(text), TEXT)
         content.add(message, MESSAGE)
         add(content, BorderLayout.CENTER)
-        minimumSize = Dimension(300, 300)
+        canvas.addZoomListener { if (pdf != null) sharpenDelay.restart() }
         showMessage("Select a file to preview it.")
     }
 
     // For tests.
     internal val currentPage: Int get() = pageIndex
     internal val currentPageCount: Int get() = pageCount
-    internal val currentImage: BufferedImage? get() = canvas.image
-    internal val messageText: String get() = message.text
+    internal val pageView: ZoomCanvas get() = canvas
+    internal val zoomControls: ZoomControls get() = zoom
+    /** The DPI the shown PDF page is rendered at; null when no PDF page is shown. */
+    internal val renderedDpi: Float? get() = when {
+        pdf == null || canvas.image == null -> null
+        sharp?.page == pageIndex && canvas.image === sharp?.image -> sharp?.dpi
+        else -> PreviewContent.PDF_DPI
+    }
 
     fun showMessage(text: String, heading: String = " ") {
         reset(heading)
@@ -90,12 +91,13 @@ internal class FilePreviewPanel : JPanel(BorderLayout(4, 4)) {
                 showPage(0)
             }
             is PreviewContent.Image -> {
-                canvas.image = preview.image
+                canvas.show(preview.image, Dimension(preview.image.width, preview.image.height))
                 pageLabel.text = "${preview.image.width} × ${preview.image.height} px"
                 pageControls.isVisible = true
                 previous.isVisible = false
                 next.isVisible = false
                 cards.show(content, IMAGE)
+                canvas.scrollTo(Point(0, 0))
             }
             is PreviewContent.Text -> {
                 text.text = preview.text + if (preview.truncated) "\n\n… (truncated)" else ""
@@ -111,12 +113,15 @@ internal class FilePreviewPanel : JPanel(BorderLayout(4, 4)) {
 
     private fun reset(heading: String) {
         generation++
+        sharpenDelay.stop()
         title.text = heading
         pdf = null
         pageCount = 0
         pageIndex = 0
         pages.clear()
-        canvas.image = null
+        sharp = null
+        sharpening = null
+        canvas.show(null, null)
         canvas.placeholder = ""
         text.text = ""
         pageControls.isVisible = false
@@ -132,8 +137,8 @@ internal class FilePreviewPanel : JPanel(BorderLayout(4, 4)) {
         pageControls.isVisible = true
         previous.isEnabled = index > 0
         next.isEnabled = index < pageCount - 1
-        pages[index]?.let { canvas.image = it; return }
-        canvas.image = null
+        pages[index]?.let { showRendered(it); return }
+        canvas.show(null, null)
         canvas.placeholder = "Rendering page ${index + 1} …"
         val token = generation
         object : SwingWorker<BufferedImage, Unit>() {
@@ -143,7 +148,7 @@ internal class FilePreviewPanel : JPanel(BorderLayout(4, 4)) {
                 try {
                     val image = get()
                     pages[index] = image
-                    if (pageIndex == index) canvas.image = image
+                    if (pageIndex == index) showRendered(image)
                 } catch (error: Exception) {
                     val cause = if (error is ExecutionException) error.cause ?: error else error
                     if (pageIndex == index) canvas.placeholder = "Could not render page ${index + 1}: ${cause.message}"
@@ -152,42 +157,88 @@ internal class FilePreviewPanel : JPanel(BorderLayout(4, 4)) {
         }.execute()
     }
 
+    /** Shows the page rendered at [PreviewContent.PDF_DPI], from its top left, then a sharper one if the zoom needs it. */
+    private fun showRendered(image: BufferedImage) {
+        // At 100 % a page is as large as on paper: one PDF point per screen pixel.
+        val points = Dimension(
+            (image.width * POINTS_PER_INCH / PreviewContent.PDF_DPI).roundToInt(),
+            (image.height * POINTS_PER_INCH / PreviewContent.PDF_DPI).roundToInt(),
+        )
+        canvas.show(sharp?.takeIf { it.page == pageIndex }?.image ?: image, points)
+        canvas.scrollTo(Point(0, 0))
+        sharpenDelay.restart()
+    }
+
+    /**
+     * Renders the shown PDF page again when the zoom shows it larger than it is rendered: at the DPI the screen needs,
+     * in steps of 50, at most [MAX_PREVIEW_DPI].
+     */
+    internal fun sharpen() {
+        val bytes = pdf ?: return
+        val index = pageIndex
+        if (pages[index] == null) return
+        val deviceScale = canvas.graphicsConfiguration?.defaultTransform?.scaleX ?: 1.0
+        val needed = (ceil(POINTS_PER_INCH * canvas.scale * deviceScale / DPI_STEP) * DPI_STEP).toFloat().coerceAtMost(MAX_PREVIEW_DPI)
+        val shown = sharp?.takeIf { it.page == index }?.dpi ?: PreviewContent.PDF_DPI
+        if (needed <= shown * 1.1f) return
+        if (sharpening?.let { it.page == index && it.dpi >= needed } == true) return
+        val request = SharpPage(index, needed, null)
+        sharpening = request
+        val token = generation
+        object : SwingWorker<BufferedImage, Unit>() {
+            override fun doInBackground(): BufferedImage = PreviewContent.renderPdfPage(bytes, index, needed)
+            override fun done() {
+                if (sharpening === request) sharpening = null
+                if (token != generation || pageIndex != index) return
+                val image = try { get() } catch (_: Exception) { return }
+                // A sharper one may have come first.
+                if ((sharp?.takeIf { it.page == index }?.dpi ?: 0f) >= needed) return
+                sharp = SharpPage(index, needed, image)
+                canvas.sharper(image)
+            }
+        }.execute()
+    }
+
+    private class SharpPage(val page: Int, val dpi: Float, val image: BufferedImage?)
+
     private companion object {
         const val IMAGE = "image"
         const val TEXT = "text"
         const val MESSAGE = "message"
+        const val POINTS_PER_INCH = 72.0
+        const val DPI_STEP = 50.0
+        /** A zoomed-in page is rendered at most this sharp: as sharp as the template pages, sharper than most scans. */
+        const val MAX_PREVIEW_DPI = 400f
+        const val SHARPEN_DELAY_MS = 250
 
         fun escape(text: String) = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     }
 }
 
-/** Draws one page scaled to fit the viewport, or to its width with vertical scrolling. */
-private class PageCanvas : JPanel(), Scrollable {
+/** One page, or an image, at the preview's zoom. Its size at 100 % stays the same when it is rendered sharper. */
+private class PageCanvas : ZoomCanvas() {
     var image: BufferedImage? = null
-        set(value) { field = value; revalidate(); repaint() }
-    var fitWidth = false
-        set(value) { field = value; revalidate(); repaint() }
+        private set
+    private var pageSize: Dimension? = null
     var placeholder = ""
         set(value) { field = value; repaint() }
 
     init { background = Color(235, 237, 240) }
 
-    private val viewportSize: Dimension? get() = (parent as? JViewport)?.extentSize
+    override val contentSize: Dimension? get() = pageSize.takeIf { image != null }
 
-    override fun getPreferredSize(): Dimension {
-        val page = image ?: return Dimension(1, 1)
-        val available = viewportSize ?: return Dimension(page.width, page.height)
-        if (!fitWidth) return available
-        val width = (available.width - 2 * MARGIN).coerceAtLeast(1)
-        return Dimension(available.width, (page.height * width.toDouble() / page.width).roundToInt() + 2 * MARGIN)
+    /** Shows [image] as large as [size] at 100 %; null for nothing. */
+    fun show(image: BufferedImage?, size: Dimension?) {
+        this.image = image
+        pageSize = size
+        contentChanged()
     }
 
-    override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
-    override fun getScrollableUnitIncrement(visible: Rectangle, orientation: Int, direction: Int) = 24
-    override fun getScrollableBlockIncrement(visible: Rectangle, orientation: Int, direction: Int) =
-        (if (orientation == SwingConstants.VERTICAL) visible.height else visible.width) - 24
-    override fun getScrollableTracksViewportWidth() = true
-    override fun getScrollableTracksViewportHeight() = !fitWidth
+    /** The same page rendered sharper: drawn in the same place. */
+    fun sharper(image: BufferedImage) {
+        this.image = image
+        repaint()
+    }
 
     override fun paintComponent(graphics: Graphics) {
         super.paintComponent(graphics)
@@ -202,13 +253,11 @@ private class PageCanvas : JPanel(), Scrollable {
             }
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-            val availableWidth = (width - 2 * MARGIN).coerceAtLeast(1).toDouble()
-            val availableHeight = (height - 2 * MARGIN).coerceAtLeast(1).toDouble()
-            val scale = if (fitWidth) availableWidth / page.width else minOf(availableWidth / page.width, availableHeight / page.height)
-            val w = (page.width * scale).roundToInt()
-            val h = (page.height * scale).roundToInt()
-            val x = (width - w) / 2
-            val y = if (fitWidth) MARGIN else (height - h) / 2
+            val bounds = contentBounds()
+            val x = bounds.x.roundToInt()
+            val y = bounds.y.roundToInt()
+            val w = bounds.width.roundToInt().coerceAtLeast(1)
+            val h = bounds.height.roundToInt().coerceAtLeast(1)
             g.color = Color(0, 0, 0, 40)
             g.fillRect(x + 3, y + 3, w, h)
             g.drawImage(page, x, y, w, h, null)
@@ -217,9 +266,5 @@ private class PageCanvas : JPanel(), Scrollable {
         } finally {
             g.dispose()
         }
-    }
-
-    private companion object {
-        const val MARGIN = 10
     }
 }

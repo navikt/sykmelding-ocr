@@ -26,6 +26,12 @@ data class OcrParserSykmeldingMeta(
     val warnings: List<String> = emptyList(),
 )
 
+/**
+ * A checkbox as read from the form. [UNCERTAIN] is a faint or partial mark, or a box that could not be read: the
+ * consumer must decide what it means (e.g. manual review). It is never turned into [UNCHECKED] by the lib.
+ */
+enum class CheckboxState { CHECKED, UNCHECKED, UNCERTAIN }
+
 enum class OcrParserVurderingType {
     FORSTE_VURDERING,
     PAFOLGENDE_VURDERING,
@@ -66,10 +72,10 @@ data class OcrParserDiagnose(
     val bidiagnoser: List<Bidiagnose> = emptyList(),
     val lovfestetFraversgrunn: String? = null,
     val fraversgrunnBeskrivelse: String? = null,
-    val svangerskap: Boolean = false,
-    val yrkesskade: Boolean = false,
+    val svangerskap: CheckboxState = CheckboxState.UNCERTAIN,
+    val yrkesskade: CheckboxState = CheckboxState.UNCERTAIN,
     val skadedato: String? = null,
-    val skjermingPaakrevet: Boolean = false,
+    val skjermingPaakrevet: CheckboxState = CheckboxState.UNCERTAIN,
 )
 
 data class Bidiagnose(
@@ -86,10 +92,10 @@ sealed interface OcrParserAktivitet {
     data class IkkeMulig(
         override val fom: String? = null,
         override val tom: String? = null,
-        val medisinskArsak: Boolean = false,
+        val medisinskArsak: CheckboxState = CheckboxState.UNCERTAIN,
         val medisinskArsakType: String? = null,
         val medisinskArsakBeskrivelse: String? = null,
-        val arbeidsrelatertArsak: Boolean = false,
+        val arbeidsrelatertArsak: CheckboxState = CheckboxState.UNCERTAIN,
     ) : OcrParserAktivitet {
         override val type: OcrParserAktivitetType
             get() = OcrParserAktivitetType.AKTIVITET_IKKE_MULIG
@@ -100,7 +106,7 @@ sealed interface OcrParserAktivitet {
         override val fom: String? = null,
         override val tom: String? = null,
         val grad: Int? = null,
-        val reisetilskudd: Boolean = false,
+        val reisetilskudd: CheckboxState = CheckboxState.UNCERTAIN,
     ) : OcrParserAktivitet {
         override val type: OcrParserAktivitetType
             get() = OcrParserAktivitetType.GRADERT
@@ -140,7 +146,7 @@ sealed interface OcrParserAktivitet {
 }
 
 data class OcrParserPrognose(
-    val arbeidsforEtterPeriode: Boolean = false,
+    val arbeidsforEtterPeriode: CheckboxState = CheckboxState.UNCERTAIN,
     val beskrivHensyn : String? = null,
     )
 
@@ -151,7 +157,7 @@ data class OcrParserBedreArbeidsevne (
 )
 
 data class OcrParserTilleggsinformasjon(
-    val bistandNavOnskes: Boolean = false,
+    val bistandNavOnskes: CheckboxState = CheckboxState.UNCERTAIN,
     val beskrivBistandOnskes: String? = null,
 )
 

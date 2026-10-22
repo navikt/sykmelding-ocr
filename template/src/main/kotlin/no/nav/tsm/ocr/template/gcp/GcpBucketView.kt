@@ -34,6 +34,7 @@ import javax.swing.JPanel
 import javax.swing.JPopupMenu
 import javax.swing.JScrollPane
 import javax.swing.JSplitPane
+import no.nav.tsm.ocr.template.view.splitPane
 import javax.swing.JTable
 import javax.swing.JTextArea
 import javax.swing.JTextField
@@ -52,17 +53,11 @@ import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableRowSorter
 
-/**
- * Lists the files in a GCS bucket, previews the selected one on the right,
- * and downloads the selected files into a sub-folder of `~/ocr/gcp`. Each file is downloaded once into
- * [downloadCache] (see [DownloadCache]) and opened, previewed and saved from there.
- */
 class GcpBucketView(
-    private val sourceFor: (String) -> BucketSource = { GcsBucketSource(it) },
     private val folders: SaveFolders = SaveFolders(),
     private val settings: Preferences? = Preferences.userNodeForPackage(GcpBucketView::class.java),
-    private val downloadCache: DownloadCache = DownloadCache.shared,
 ) : JPanel(BorderLayout(6, 6)) {
+    private val downloadCache = DownloadCache.shared
 
     private val bucket = JComboBox((listOfNotNull(settings?.get(BUCKET, null)) + KNOWN_BUCKETS).distinct().toTypedArray()).apply {
         isEditable = true
@@ -101,19 +96,12 @@ class GcpBucketView(
     private var listing: SwingWorker<Int, List<BucketFile>>? = null
     private var listingToken = 0
     private var previewToken = 0
-    private var previewing = false
     private var saving = false
     private var closed = false
     private var shown: BucketFile? = null
     private var shownPdf: PdfInfo? = null
     private val downloadFolder = DownloadFolderControls(downloadCache) { status.text = it }
     private val previewDelay = Timer(PREVIEW_DELAY_MS) { previewSelected() }.apply { isRepeats = false }
-
-    internal val isBusy: Boolean get() = listing != null || previewing || saving || previewDelay.isRunning
-    internal val bucketTable: JTable get() = table
-    internal val previewPanel: FilePreviewPanel get() = preview
-    internal val statusText: String get() = status.text
-    internal val detailsText: String get() = details.text
 
     init {
         border = BorderFactory.createEmptyBorder(8, 8, 8, 8)
@@ -136,13 +124,14 @@ class GcpBucketView(
             add(folder, BorderLayout.CENTER)
             add(row(save, newFolder, openFolder), BorderLayout.EAST)
         }
-        val left = JSplitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(table),
-            JScrollPane(details).apply { border = BorderFactory.createTitledBorder("Details") }).apply { resizeWeight = 0.7 }
+        val left = splitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(table),
+            JScrollPane(details).apply { border = BorderFactory.createTitledBorder("Details") }, location = 0.7, weight = 0.7)
         val right = JPanel(BorderLayout(4, 4)).apply {
             add(saveBar, BorderLayout.NORTH)
             add(preview, BorderLayout.CENTER)
         }
-        add(JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right).apply { resizeWeight = 0.5; dividerLocation = 760 }, BorderLayout.CENTER)
+        // Both dividers can be dragged both ways: see splitPane.
+        add(splitPane(JSplitPane.HORIZONTAL_SPLIT, left, right, location = 0.5, weight = 0.5), BorderLayout.CENTER)
         add(status, BorderLayout.SOUTH)
 
         filter.document.addDocumentListener(object : DocumentListener {
@@ -216,11 +205,10 @@ class GcpBucketView(
         val prefixText = prefix.text.trim()
         settings?.put(BUCKET, name)
         settings?.put(PREFIX, prefixText)
-        val current = sourceFor(name)
+        val current = GcsBucketSource(name)
         source = current
         val token = ++listingToken
         previewToken++
-        previewing = false
         model.clear()
         shown = null
         shownPdf = null
@@ -294,7 +282,6 @@ class GcpBucketView(
         showDetails()
         val cached = downloadCache.cachedFile(current.bucket, file) != null
         val token = ++previewToken
-        previewing = true
         preview.showMessage(if (cached) "Opening ${file.fileName} from the download folder …"
             else "Downloading ${file.fileName} (${formatSize(file.size)}) …", file.fileName)
         object : SwingWorker<Pair<ByteArray, PreviewContent>, Unit>() {
@@ -314,7 +301,6 @@ class GcpBucketView(
                 if (closed) return
                 if (!cached) downloadFolder.refresh()
                 if (token != previewToken) return
-                previewing = false
                 result.onSuccess { (bytes, content) ->
                     preview.show(file.fileName, bytes, content)
                     shownPdf = (content as? PreviewContent.Pdf)?.info

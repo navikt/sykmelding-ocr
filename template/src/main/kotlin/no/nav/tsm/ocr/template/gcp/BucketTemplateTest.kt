@@ -5,8 +5,16 @@ import no.nav.tsm.ocr.template.testing.alignmentPreview
 import no.nav.tsm.ocr.template.testing.png
 import no.nav.tsm.ocr.template.testing.previewScale
 import no.nav.tsm.ocr.template.testing.resized
+import no.nav.tsm.sykmelding.model.CheckboxState
+import no.nav.tsm.sykmelding.ocr.CHECKBOX_RULE
+import no.nav.tsm.sykmelding.ocr.CheckboxReading
+import no.nav.tsm.sykmelding.ocr.FieldText
+import no.nav.tsm.sykmelding.ocr.FieldSegment
 import no.nav.tsm.sykmelding.ocr.Ocr
-import no.nav.tsm.sykmelding.ocr.ParseSykmeldingOcr
+import no.nav.tsm.sykmelding.ocr.PageRead
+import no.nav.tsm.sykmelding.ocr.TextRegion
+import no.nav.tsm.sykmelding.ocr.readPage
+import no.nav.tsm.sykmelding.ocr.skipsOcr
 import no.nav.tsm.sykmelding.template.TemplateMatchResult
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import org.example.no.nav.tsm.ocr.template.template.Felter
@@ -19,6 +27,7 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.io.File
 import javax.imageio.ImageIO
+import kotlin.math.roundToInt
 
 internal class LibraryPage(
     val group: String,
@@ -87,9 +96,6 @@ internal class LibraryPages(val pages: List<LibraryPage>, val problems: List<Str
  * so it is kept between runs while no template changes.
  */
 internal class PreparedMatcher(val fingerprint: List<String>, val matcher: TemplateMatcher, val previews: TemplatePreviews = TemplatePreviews()) : AutoCloseable {
-    /** Lib's OCR, which reads the fields of a match; it shares [matcher], so creating it detects nothing again. */
-    val parser = ParseSykmeldingOcr(Ocr(), matcher)
-
     override fun close() = matcher.close()
 }
 
@@ -110,12 +116,11 @@ internal class TemplateOutcome(val template: LibraryPage, val preview: ByteArray
     fun previewImage(): BufferedImage? = preview?.let { ImageIO.read(ByteArrayInputStream(it)) }
 }
 
-/** The fields of one template page as lib's OCR read them from the aligned page; null = nothing read. */
-internal typealias OcrFields = Map<Felter, String?>
+internal typealias OcrFields = Map<Felter, FieldText>
 
 /**
  * One document's result. [MATCHED][PdfStatus.MATCHED]: every page of one template was found in the file, and
- * [outcomes] lists those template pages in template order. [ocr] has the fields read from each of them, in the same
+ * [outcomes] lists those template pages in template order. [reads] has the fields read from each of them, in the same
  * order; null when they could not be read ([message] says why). [millis] is the whole test, [ocrMillis] the OCR part.
  */
 internal class PdfTestResult(
@@ -124,9 +129,13 @@ internal class PdfTestResult(
     val pages: Int? = null,
     val outcomes: List<TemplateOutcome> = emptyList(),
     val millis: Long = 0,
-    val ocr: List<OcrFields>? = null,
+    val reads: List<PageRead>? = null,
     val ocrMillis: Long = 0,
+    val ocrError: String? = null,
 ) {
+    val ocr: List<OcrFields>? get() = reads?.map { it.values }
+    val checkboxes: List<Map<Felter, CheckboxReading>>? get() = reads?.map { it.checkboxes }
+    val segments: List<List<FieldSegment>>? get() = reads?.map { it.segments }
     val statusText: String get() = if (status == PdfStatus.RUNNING && message.isNotEmpty()) message else status.toString()
 
     /** The matched template and its pages, for the file list; empty when nothing matched. */
@@ -142,17 +151,17 @@ internal class PdfTestResult(
                 append(status)
                 pages?.let { append(" — $it page${plural(it)}") }
                 if (millis > 0) append(" in %.1f s".format(millis / 1000.0))
-                if (ocrMillis > 0) append(" (matching %.1f s, OCR %.1f s)".format((millis - ocrMillis) / 1000.0, ocrMillis / 1000.0))
+                if (reads != null) append(" (OCR ${seconds(ocrMillis)})")
                 appendLine()
                 outcomes.forEach { appendLine("  ${it.template.label} — page ${it.template.position} of ${it.template.templateSize} found and aligned") }
                 if (message.isNotEmpty()) appendLine(message)
                 appendLine("Matched with lib's TemplateMatcher, as in production.")
-                ocr?.let { pages ->
+                reads?.let { pages ->
                     appendLine()
-                    appendLine("Fields read with lib's OCR (ParseSykmeldingOcr): ${pages.sumOf { it.size }} on ${pages.size} page${plural(pages.size)}")
-                    outcomes.zip(pages).forEach { (outcome, fields) ->
+                    appendLine("Fields read with lib's OCR, as production reads them: ${pages.sumOf { it.values.size }} on ${pages.size} page${plural(pages.size)}")
+                    outcomes.zip(pages).forEach { (outcome, page) ->
                         appendLine("  ${outcome.template.label}:")
-                        appendLine(fieldLines(fields).trimEnd().prependIndent("    "))
+                        appendLine(fieldLines(page).trimEnd().prependIndent("    "))
                     }
                 }
             }
@@ -160,9 +169,39 @@ internal class PdfTestResult(
     }
 }
 
-/** One line per field: name, type and the text read ("–" when empty), like the template editor lists them. */
-internal fun fieldLines(fields: OcrFields): String = buildString {
-    fields.forEach { (field, value) -> appendLine("${"${field.navn} (${field.type})".padEnd(36)} ${value?.ifBlank { null } ?: "–"}") }
+/** One line per field: what was read in it, with confidence; for a checkbox, its state and ink ([checkboxText]). */
+internal fun fieldLines(page: PageRead): String = buildString {
+    page.values.forEach { (field, text) ->
+        val value = if (field.type.skipsOcr) checkboxText(page.checkboxes[field]) else withConfidence(text.lines).ifEmpty { "–" }
+        appendLine("${"${field.navn} (${field.type})".padEnd(36)} $value")
+    }
+}
+
+internal fun leftOutOf(field: Felter, segments: List<FieldSegment>): List<String> {
+    if (field.type.skipsOcr) return emptyList()
+    val own = segments.filter { it.field == field }
+    if (own.isEmpty()) return listOf(OcrFieldRow.NOTHING_FOUND)
+    return own.flatMap { segment ->
+        if (segment.lines.isEmpty()) listOf("read nothing")
+        else segment.lines.mapNotNull { line -> line.leftOut?.let { "${withConfidence(listOf(line.region))} — ${it.description}" } }
+    }
+}
+
+/**
+ * The layout's line segments that gave their field nothing, and why: read as nothing, or each line read in it left
+ * out, e.g. as a stamp. Empty when there are none; otherwise a heading and one line per segment.
+ */
+internal fun leftOutSegments(segments: List<FieldSegment>): String = buildString {
+    val leftOut = segments.filter { segment -> segment.lines.none { it.leftOut == null } }
+    if (leftOut.isEmpty()) return@buildString
+    appendLine("Line segments that gave their field nothing (${leftOut.size}):")
+    leftOut.forEach { appendLine("  ${"${it.field.navn} (${it.field.type})".padEnd(36)} ${segmentOutcome(it)}") }
+}
+
+/** What became of [segment]: that nothing was read in it, or each line's fate. */
+internal fun segmentOutcome(segment: FieldSegment): String {
+    if (segment.lines.isEmpty()) return "read nothing"
+    return segment.lines.joinToString(" / ") { "${withConfidence(listOf(it.region))} — ${it.leftOut?.description ?: "used"}" }
 }
 
 internal fun pageCount(file: File): Int = PdfTemplateImages.pageCount(file)
@@ -170,9 +209,10 @@ internal fun pageCount(file: File): Int = PdfTemplateImages.pageCount(file)
 /**
  * Matches [file] with [prepared]'s matcher, exactly as production does: the file matches a template when every page
  * of the template is found among its pages. Each found template page gets a preview of the aligned page, and its
- * fields are read with lib's OCR right away, while the aligned pages are still in memory (they are dropped afterwards;
- * [reading] is called just before). Never throws: an unreadable file becomes [PdfStatus.ERROR], and a match whose
- * fields could not be read stays [PdfStatus.MATCHED] with the error in its message.
+ * fields are read with lib's OCR right away ([readPage]), while the aligned pages are still in memory (they are dropped
+ * afterwards; [reading] is called just before). Never throws: an unreadable
+ * file becomes [PdfStatus.ERROR], and a match whose fields could not be read stays [PdfStatus.MATCHED] with the error
+ * in its message.
  */
 internal fun testAgainstTemplates(file: File, prepared: PreparedMatcher, reading: () -> Unit = {}): PdfTestResult {
     val started = System.nanoTime()
@@ -185,10 +225,13 @@ internal fun testAgainstTemplates(file: File, prepared: PreparedMatcher, reading
             val outcomes = result.templateMatch.entries.mapIndexed { index, (template, aligned) -> outcome(result.template, index, template, aligned, prepared.previews) }
             reading()
             val ocrStarted = System.nanoTime()
-            val fields = runCatching { prepared.parser.readOcrFields(result).map { it.fields } }
+            val reads = runCatching {
+                val ocr = Ocr()
+                result.templateMatch.map { (template, aligned) -> ocr.readPage(aligned, template.felter) }
+            }
             val ocrMillis = (System.nanoTime() - ocrStarted) / 1_000_000
-            PdfTestResult(PdfStatus.MATCHED, fields.exceptionOrNull()?.let { "The fields could not be read: ${it.message ?: it}" }.orEmpty(),
-                pages, outcomes, elapsed(), fields.getOrNull(), ocrMillis)
+            val error = reads.exceptionOrNull()?.let { "The fields could not be read: ${it.message ?: it}" }
+            PdfTestResult(PdfStatus.MATCHED, error.orEmpty(), pages, outcomes, elapsed(), reads.getOrNull(), ocrMillis, error)
         }
         TemplateMatchResult.NoMatch -> PdfTestResult(PdfStatus.NO_MATCH, "No template has every one of its pages in this file.", pages, millis = elapsed())
         is TemplateMatchResult.Error -> PdfTestResult(PdfStatus.ERROR, result.exception.message ?: result.exception.toString(), pages, millis = elapsed())
@@ -205,7 +248,7 @@ private fun outcome(group: TemplateGroup, index: Int, template: Template, aligne
     return try {
         val (templatePreview, scale) = previews.of(resolved.templateBilde)
         TemplateOutcome(page, png(alignmentPreview(templatePreview, aligned, scale)), scale)
-    } catch (error: Exception) {
+    } catch (_: Exception) {
         // The aligned page alone is still worth seeing.
         val scale = previewScale(aligned.width)
         TemplateOutcome(page, png(resized(aligned, scale)), scale)
@@ -213,3 +256,24 @@ private fun outcome(group: TemplateGroup, index: Int, template: Template, aligne
 }
 
 internal fun plural(count: Int) = if (count == 1) "" else "s"
+
+/** How a checkbox is read: by the ink inside its frame, not by OCR ([skipsOcr]), and how its state is decided. */
+internal val CHECKBOX_READ = "Checkbox: read by the ink inside its frame, not by OCR. $CHECKBOX_RULE"
+
+/**
+ * A checkbox as shown in place of a value: its state and how much ink is in it, `[x] checked (23.4 % dark, 25.0 % ink)`.
+ * [reading] is null when the page's checkboxes were not read.
+ */
+internal fun checkboxText(reading: CheckboxReading?): String {
+    if (reading == null) return "not read"
+    return when (reading.state) {
+        CheckboxState.CHECKED -> "[x] checked (${reading.coverageText})"
+        CheckboxState.UNCHECKED -> "[ ] unchecked (${reading.coverageText})"
+        CheckboxState.UNCERTAIN -> "[?] uncertain (${reading.coverageText}): a faint or partial mark, check by hand"
+    }
+}
+
+/** [lines] on one line, separated by " / ", each with Tesseract's confidence in it: `Storgata 1 [93%] / 0150 Oslo [71%]`. */
+internal fun withConfidence(lines: List<TextRegion>): String = lines.joinToString(" / ") { "${oneLine(it.text)} [${it.confidence.roundToInt()}%]" }
+internal fun seconds(millis: Long): String = "%.1f s".format(millis / 1000.0)
+private fun oneLine(text: String): String = text.trim().replace(Regex("\\s+"), " ")

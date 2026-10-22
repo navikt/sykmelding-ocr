@@ -135,7 +135,6 @@ class PageNumberViewTest {
             { view.resetSecondImage() },
             { view.loadSecond(image(3307, 4677)) },
             { view.loadConfiguration(directory.resolve("configuration.json")) },
-            { view.loadReference(image(3307, 4677)) },
         )
         for (change in changes) {
             edt { readButton(view).doClick() }

@@ -65,13 +65,12 @@ internal class TemplateDialogInput(
 /**
  * Asks which pages of a PDF become a template, and whether they start a new template or are added to an existing
  * one. Every page is shown as a thumbnail with a checkbox; all are included at first. Each page can be turned by hand
- * or fixed automatically with [detectOrientation] (upside down, sideways, slightly tilted). [request] is null if cancelled.
+ * or fixed automatically with [PageOrientation.detect] (upside down, sideways, slightly tilted). [request] is null if cancelled.
  */
 internal class CreateTemplateDialog(
     owner: Window?,
     private val input: TemplateDialogInput,
     private val library: TemplateLibrary,
-    private val detectOrientation: (BufferedImage) -> OrientationGuess = PageOrientation::detect,
 ) : JDialog(owner, "Create template from ${input.fileName}", ModalityType.APPLICATION_MODAL) {
 
     var request: TemplateFromPdfRequest? = null
@@ -103,11 +102,8 @@ internal class CreateTemplateDialog(
     }
     private var orientationWorker: OrientationWorker? = null
 
-    // For tests.
-    internal val includedPages: List<Int> get() = cells.filter { it.include.isSelected }.map { it.page }
-    internal val summaryText: String get() = summary.text
-    internal val rotations: Map<Int, PageRotation> get() = cells.filterNot { it.rotation.isNone() }.associate { it.page to it.rotation }
-    internal val isFixingRotation: Boolean get() = orientationWorker != null
+    private val includedPages: List<Int> get() = cells.filter { it.include.isSelected }.map { it.page }
+    private val rotations: Map<Int, PageRotation> get() = cells.filterNot { it.rotation.isNone() }.associate { it.page to it.rotation }
 
     init {
         ButtonGroup().apply { add(newTemplate); add(existingTemplate) }
@@ -393,13 +389,13 @@ internal class CreateTemplateDialog(
         }
     }
 
-    /** [pages] rendered for text (300 DPI, gray) one at a time, and their rotation found with [detectOrientation]. */
+    /** [pages] rendered for text (400 DPI, gray) one at a time, and their rotation found with [PageOrientation.detect]. */
     private inner class OrientationWorker(private val pages: List<Int>) : SwingWorker<Unit, Pair<Int, Result<OrientationGuess>>>() {
         override fun doInBackground() = Loader.loadPDF(input.pdf).use { document ->
             val renderer = PDFRenderer(document)
             for (page in pages) {
                 if (isCancelled) return@use
-                publish(page to runCatching { detectOrientation(renderer.renderImageWithDPI(page - 1, 400.toFloat(), ImageType.GRAY)) })
+                publish(page to runCatching { PageOrientation.detect(renderer.renderImageWithDPI(page - 1, 400.toFloat(), ImageType.GRAY)) })
             }
         }
 

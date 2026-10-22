@@ -1,20 +1,36 @@
 package no.nav.tsm.sykmelding.ocr
 
+import no.nav.tsm.sykmelding.model.CheckboxState
 import org.example.no.nav.tsm.ocr.template.template.Felter
 import java.awt.image.BufferedImage
+import java.util.Locale
 import kotlin.math.ceil
 
-enum class CheckboxState { CHECKED, UNCHECKED, UNCERTAIN }
+data class CheckboxReading(
+    val state: CheckboxState,
+    val darkCoverage: Double?,
+    val inkCoverage: Double?,
+) {
+    val coverageText: String
+        get() = if (darkCoverage == null || inkCoverage == null) "too small to measure"
+            else "${percent(darkCoverage)} dark, ${percent(inkCoverage)} ink"
+}
+
+
+val CHECKBOX_RULE: String =
+    "Checked at ${percent(CHECKED_COVERAGE, 0)} dark or more (darker than mid-grey); unchecked at ${percent(EMPTY_COVERAGE, 0)} " +
+        "ink or less (anything but near-white); uncertain in between. Measured inside the box, its frame and a " +
+        "${percent(BORDER_FRACTION, 0)} margin on each side left out."
 
 private const val BORDER_FRACTION = 0.20
 private const val MIN_INTERIOR_SIZE = 8
 private const val DARK_THRESHOLD = 128
 private const val POSSIBLE_INK_THRESHOLD = 224
-private const val CHECKED_COVERAGE = 0.10
+const val CHECKED_COVERAGE = 0.10
 private const val EMPTY_COVERAGE = 0.02
 
 /** Expects an aligned page and a field tightly enclosing the checkbox, including its printed border. */
-fun detectCheckbox(image: BufferedImage, field: Felter): CheckboxState {
+fun detectCheckbox(image: BufferedImage, field: Felter): CheckboxReading {
     require(field.bredde > 0 && field.hoyde > 0) {
         "Checkbox '${field.navn}' (${field.id}) has invalid dimensions."
     }
@@ -28,7 +44,7 @@ fun detectCheckbox(image: BufferedImage, field: Felter): CheckboxState {
     val insetY = ceil(field.hoyde * BORDER_FRACTION).toInt()
     val width = field.bredde - 2 * insetX
     val height = field.hoyde - 2 * insetY
-    if (width < MIN_INTERIOR_SIZE || height < MIN_INTERIOR_SIZE) return CheckboxState.UNCERTAIN
+    if (width < MIN_INTERIOR_SIZE || height < MIN_INTERIOR_SIZE) return CheckboxReading(CheckboxState.UNCERTAIN, null, null)
 
     var darkPixels = 0
     var possibleInkPixels = 0
@@ -40,13 +56,17 @@ fun detectCheckbox(image: BufferedImage, field: Felter): CheckboxState {
         }
     }
     val area = width.toDouble() * height
-    return when {
-        darkPixels / area >= CHECKED_COVERAGE -> CheckboxState.CHECKED
-        possibleInkPixels / area <= EMPTY_COVERAGE -> CheckboxState.UNCHECKED
-        // Faint marks and intermediate coverage must not silently become an unchecked box.
+    val dark = darkPixels / area
+    val ink = possibleInkPixels / area
+    val state = when {
+        dark >= CHECKED_COVERAGE -> CheckboxState.CHECKED
+        ink <= EMPTY_COVERAGE -> CheckboxState.UNCHECKED
         else -> CheckboxState.UNCERTAIN
     }
+    return CheckboxReading(state, dark, ink)
 }
+
+private fun percent(share: Double, decimals: Int = 1): String = "%.${decimals}f %%".format(Locale.ROOT, share * 100)
 
 private fun brightnessOnWhite(argb: Int): Int {
     val alpha = argb ushr 24

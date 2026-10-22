@@ -1,11 +1,16 @@
 package no.nav.tsm.sykmelding.utils
 
+import org.bytedeco.opencv.opencv_core.Mat
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.awt.image.BufferedImage
 
 class ImageUtilsTest {
+
+   private fun findCellBoxes(image: Mat, settings: GridSettings = GridSettings(), edits: List<GridEdit> = emptyList()) =
+        createGridMask(image, settings, edits).use { findGridCells(it, settings.minimumCellSize) }
+
     @Test
     fun `small near-miss junctions close but larger gaps require a manual repair`() {
         val image = gridImage {
@@ -127,7 +132,7 @@ class ImageUtilsTest {
                 graphics.dispose()
             }
 
-            val boxes = getBoundingBox(findCountours(toMat(image)))
+            val boxes = findContourBoxes(toMat(image)).map { it.bounds }
             assertEquals(1, boxes.size, "BufferedImage type $type")
             assertEquals(8, boxes.single().x())
             assertEquals(9, boxes.single().y())

@@ -4,7 +4,15 @@ import no.nav.tsm.ocr.template.testing.DEFAULT_PARALLEL
 import no.nav.tsm.ocr.template.testing.GuideImagePanel
 import no.nav.tsm.ocr.template.testing.GuidePane
 import no.nav.tsm.ocr.template.testing.previewBoxes
+import no.nav.tsm.ocr.template.view.WrapLayout
+import no.nav.tsm.ocr.template.view.ZoomControls
+import no.nav.tsm.ocr.template.view.splitPane
+import no.nav.tsm.sykmelding.model.CheckboxState
+import no.nav.tsm.sykmelding.ocr.CheckboxReading
+import no.nav.tsm.sykmelding.ocr.FieldSegment
+import no.nav.tsm.sykmelding.ocr.skipsOcr
 import no.nav.tsm.sykmelding.template.TemplateMatcher
+import org.example.no.nav.tsm.ocr.template.template.Felter
 import org.example.no.nav.tsm.ocr.template.template.TemplateGroup
 import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
 import java.awt.BorderLayout
@@ -59,16 +67,14 @@ import javax.swing.event.DocumentListener
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableRowSorter
-import kotlin.collections.emptyList
 
 class BucketTemplateTestView(
-    private val sourceFor: (String) -> BucketSource = { GcsBucketSource(it) },
     private val library: TemplateLibrary = TemplateLibrary(),
     private val settings: Preferences? = Preferences.userNodeForPackage(GcpBucketView::class.java),
-    private val downloadCache: DownloadCache = DownloadCache.shared,
     private val onTemplateCreated: ((pages: List<File>, openInEditor: Boolean) -> Unit)? = null,
     private val testFolder: File? = findTestResources(),
 ) : JPanel(BorderLayout(6, 6)) {
+    private val downloadCache = DownloadCache.shared
 
     // Listing, as in GcpBucketView (which shares the last used bucket and prefix).
     private val bucket = JComboBox((listOfNotNull(settings?.get(BUCKET, null)) + KNOWN_BUCKETS).distinct().toTypedArray()).apply {
@@ -88,7 +94,7 @@ class BucketTemplateTestView(
         addActionListener { listDownloads() }
     }
     private val showTestPdfs = JButton("Show test PDFs").apply {
-        toolTipText = testFolder?.let { "<html>List the PDFs in ${escape(it.path)} instead of the bucket.<br>" +
+        toolTipText = testFolder?.let { "<html>List the PDFs (and XMLs) in ${escape(it.path)} instead of the bucket.<br>" +
             "They are previewed and tested as usual; Prefix filters them by their path in the folder.</html>" }
             ?: "No src/test/resources folder found from ${File("").absolutePath}."
         isEnabled = testFolder != null
@@ -97,6 +103,15 @@ class BucketTemplateTestView(
     private val stopListing = JButton("Stop listing").apply { isEnabled = false; addActionListener { listing?.cancel(true) } }
     private val filter = JTextField(18).apply { toolTipText = "Show only names containing this text" }
     private val pdfOnly = JCheckBox("PDF only", settings?.getBoolean(PDF_ONLY, true) ?: true)
+    private val xmlToo = JCheckBox("XML too", settings?.getBoolean(XML_TOO, true) ?: true).apply {
+        toolTipText = "<html>With PDF only: show the XML files too. syfosmpapirmottak stores one next to some PDFs, with what " +
+            "the scanning read from the form.<br>A PDF that has one is marked in the XML column; the test result shows the XML " +
+            "below the OCR fields, and the XML tab shows it too.</html>"
+    }
+    private val withXmlOnly = JCheckBox("With XML only").apply {
+        toolTipText = "<html>Show only the PDFs that have an XML (and, with XML too, those XMLs):<br>" +
+            "the files whose OCR can be compared with the XML. Run tests them only.</html>"
+    }
     private val resultFilter = JComboBox(ShowFilter.entries.toTypedArray()).apply { toolTipText = "Show files by their test result" }
     private val count = JLabel(" ")
 
@@ -109,7 +124,8 @@ class BucketTemplateTestView(
         toolTipText = "<html>Match the selected files with lib's TemplateMatcher, the matcher production runs:<br>" +
             "a file matches a template when every page of the template is found among the file's pages<br>" +
             "(AKAZE features, GMS, RANSAC homography, then the form lines must line up).<br>" +
-            "The fields of a matched file are then read from the aligned pages with lib's OCR, as production does.</html>"
+            "The fields are read as production reads them: the layout analysis finds the text lines on the page,<br>" +
+            "and each line is cut to its field and read on its own.</html>"
         addActionListener { testSelection() }
     }
     private val runCount = JSpinner(SpinnerNumberModel((settings?.getInt(RUN_COUNT, 10) ?: 10).coerceIn(1, MAX_RUN), 1, MAX_RUN, 1)).apply {
@@ -146,16 +162,32 @@ class BucketTemplateTestView(
     private val resultTitle = JLabel(" ").apply { font = font.deriveFont(Font.BOLD) }
     private val outcomes = OutcomeTableModel()
     private val outcomeTable = JTable(outcomes)
-    private val images = GuideImagePanel()
-    private val actualSize = JCheckBox("Actual size (1:1)").apply {
-        toolTipText = "Previews are half the size of the 400-DPI page."
-        addActionListener { images.actualSize = isSelected }
+    private val fieldTable = OcrFieldsPanel()
+    private val images = GuideImagePanel().apply {
+        describeBox = { describeField(it.box) }
+        describeRegion = { describeSegmentAt(it.box) }
+    }
+    private val imageZoom = ZoomControls(images, "one preview pixel per screen pixel; previews are half the size of the 400-DPI page")
+    private val showSegments = JCheckBox("Show line segments", true).apply {
+        toolTipText = "Draw the line segments OCR read in orange: each text line the layout found, cut to its field. Hover one to see what was read in it."
+        isEnabled = false
+        addActionListener { refreshOutcome() }
     }
     private val outcomeText = JTextArea(6, 40).apply {
         isEditable = false; lineWrap = true; wrapStyleWord = true; font = Font(Font.MONOSPACED, Font.PLAIN, 12)
     }
+    private val ocrFields = JScrollPane(outcomeText)
+    private val ocrFieldsBorder = ocrFields.border
+    /** In the test result, below the OCR fields, when the shown PDF has an XML; see [setXmlBesideOcr]. */
+    private val xmlBesideOcr = XmlPanel("XML — what the scanning read, to compare with the OCR")
+    /** The OCR fields above the XML; [ocrFields] is moved into it by [setXmlBesideOcr]. */
+    private val fieldsSplit = splitPane(JSplitPane.VERTICAL_SPLIT, ocrFields, xmlBesideOcr, location = 0.5, weight = 0.5)
+    /** The OCR fields, alone or with [xmlBesideOcr] in [fieldsSplit]. */
+    private val fields = JPanel(BorderLayout()).apply { add(ocrFields) }
+    private var xmlShownBesideOcr = false
     private val tabs = JTabbedPane()
     private val compare = BucketComparePanel({ LibraryPages.load(library).pages })
+    private val xml = XmlPanel()
     private val openInCompare = JButton("Open in Compare").apply {
         toolTipText = "Open the selected PDF page and template page in the Compare tab, to apply reference images and read fields."
         isEnabled = false
@@ -181,18 +213,16 @@ class BucketTemplateTestView(
     private var downloading = false
     private var creatingTemplate = false
 
-    /** Where "Download…" saves [BucketFile]; null to cancel. Replaced by tests. */
-    internal var chooseDownloadTarget: (BucketFile) -> File? = ::askDownloadTarget
-
-    /** What "Create template from…" makes of the PDF; null to cancel. Replaced by tests. */
-    internal var askTemplateRequest: (TemplateDialogInput) -> TemplateFromPdfRequest? = { CreateTemplateDialog.ask(this, it, library) }
-
     /** The bucket currently listed; previews and new runs use this, not the (editable) combo box. */
     private var source: BucketSource? = null
+    /** Where the XML of a PDF is looked for when the list may not have it (see [listHasAll]): the bucket itself, also for downloads. */
+    private var lookup: BucketSource? = null
+    /** The prefix of the last listing, once it has listed every file under it; null while listing, or when it stopped or failed. */
+    private var listedPrefix: String? = null
     private var listing: SwingWorker<Int, List<BucketFile>>? = null
     private var listingToken = 0
     private var previewToken = 0
-    private var previewing = false
+    private var xmlToken = 0
     @Volatile private var closed = false
     private var shown: BucketFile? = null
     /** The file and PDF-tab page the Compare tab last followed. */
@@ -200,6 +230,8 @@ class BucketTemplateTestView(
     private var shownPdf: PdfInfo? = null
     private var resultFile: BucketFile? = null
     private var shownResult: PdfTestResult? = null
+    /** The template page whose aligned page and fields "Test result" shows. */
+    private var shownOutcome: TemplateOutcome? = null
     private val downloadFolder = DownloadFolderControls(downloadCache) { status.text = it }
     private val previewDelay = Timer(PREVIEW_DELAY_MS) { previewSelected() }.apply { isRepeats = false }
 
@@ -216,45 +248,57 @@ class BucketTemplateTestView(
 
     init {
         border = BorderFactory.createEmptyBorder(8, 8, 8, 8)
-        preferredSize = Dimension(1650, 980)
+        preferredSize = Dimension(1800, 980)
         setupTable()
         setupOutcomeTable()
 
         add(JPanel(GridLayout(0, 1, 0, 2)).apply {
             add(flowRow(JLabel("Bucket:"), bucket, JLabel("Prefix:"), prefix, loadButton, showDownloads, showTestPdfs, stopListing, Box.createHorizontalStrut(18),
                 downloadFolder))
-            add(flowRow(JLabel("Filter:"), filter, pdfOnly, JLabel("Show:"), resultFilter, count))
+            add(flowRow(JLabel("Filter:"), filter, pdfOnly, xmlToo, withXmlOnly, JLabel("Show:"), resultFilter, count))
             add(flowRow(testSelected, Box.createHorizontalStrut(18), JLabel("Test"), runCount, JLabel("of the shown files"), order,
                 untestedOnly, run, stop, Box.createHorizontalStrut(18), JLabel("Parallel files:"), parallel))
             add(flowRow(templatesLabel, chooseTemplates, reloadTemplates, Box.createHorizontalStrut(18), summary))
         }, BorderLayout.NORTH)
 
-        val left = JSplitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(table),
-            JScrollPane(details).apply { border = BorderFactory.createTitledBorder("Details") }).apply { resizeWeight = 0.7 }
+        // Three columns: the files; the shown file's details and test result; and its PDF or aligned page alone. Every
+        // divider can be dragged both ways: see splitPane.
+        val left = JScrollPane(table)
         val result = JPanel(BorderLayout(4, 4)).apply {
             add(JPanel(BorderLayout()).apply {
                 add(resultTitle, BorderLayout.CENTER)
-                add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { add(openInCompare); add(actualSize) }, BorderLayout.EAST)
+                add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { add(openInCompare) }, BorderLayout.EAST)
             }, BorderLayout.NORTH)
-            val image = JSplitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(images), JScrollPane(outcomeText)).apply { resizeWeight = 0.85 }
-            val outcomeList = JScrollPane(outcomeTable).apply { minimumSize = Dimension(200, 90) }
-            add(JSplitPane(JSplitPane.VERTICAL_SPLIT, outcomeList, image).apply { dividerLocation = 170 }, BorderLayout.CENTER)
+            add(splitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(outcomeTable), fields, location = 0.22, weight = 0.0), BorderLayout.CENTER)
         }
-        tabs.addTab("PDF", preview)
-        tabs.addTab("Test result", result)
-        tabs.addTab("Compare", compare)
-        tabs.setToolTipTextAt(COMPARE_TAB, "A page of the file with a template page, as in the image comparison view: " +
-            "apply reference images, apply the configuration and read fields.")
-        tabs.addChangeListener { if (tabs.selectedIndex == COMPARE_TAB) compareShownPage() }
-        val right = JPanel(BorderLayout(4, 4)).apply {
+        val middle = JPanel(BorderLayout(4, 4)).apply {
             add(JPanel(BorderLayout(6, 0)).apply {
                 border = BorderFactory.createEmptyBorder(0, 4, 0, 0)
                 add(shownName, BorderLayout.CENTER)
                 add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { add(download); add(createTemplate) }, BorderLayout.EAST)
             }, BorderLayout.NORTH)
-            add(tabs, BorderLayout.CENTER)
+            val info = JScrollPane(details).apply { border = BorderFactory.createTitledBorder("Details") }
+            add(splitPane(JSplitPane.VERTICAL_SPLIT, info, result, location = 0.26, weight = 0.0), BorderLayout.CENTER)
         }
-        add(JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, right).apply { resizeWeight = 0.5; dividerLocation = 800 }, BorderLayout.CENTER)
+        val page = JPanel(BorderLayout()).apply {
+            add(JPanel(WrapLayout()).apply {
+                add(showSegments); add(Box.createHorizontalStrut(12)); add(imageZoom)
+            }, BorderLayout.NORTH)
+            add(splitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(images), fieldTable, location = 0.65, weight = 0.65), BorderLayout.CENTER)
+        }
+        tabs.addTab("PDF", preview)
+        tabs.addTab("Test result", page)
+        tabs.addTab("Compare", compare)
+        tabs.addTab("XML", xml)
+        tabs.setToolTipTextAt(COMPARE_TAB, "A page of the file with a template page, as in the image comparison view: " +
+            "apply reference images, apply the configuration and read fields.")
+        tabs.setToolTipTextAt(RESULT_TAB, "The page of the file aligned to the template page chosen in the middle, " +
+            "with its fields as production reads them, and the line segments read in them.")
+        tabs.setToolTipTextAt(XML_TAB, "The XML stored with the PDF, with what the scanning read from the form, " +
+            "also shown below the OCR fields.")
+        tabs.addChangeListener { if (tabs.selectedIndex == COMPARE_TAB) compareShownPage() }
+        val right = splitPane(JSplitPane.HORIZONTAL_SPLIT, middle, tabs, location = 0.46, weight = 0.4)
+        add(splitPane(JSplitPane.HORIZONTAL_SPLIT, left, right, location = 0.36, weight = 0.35), BorderLayout.CENTER)
         add(status, BorderLayout.SOUTH)
 
         filter.document.addDocumentListener(object : DocumentListener {
@@ -262,7 +306,14 @@ class BucketTemplateTestView(
             override fun removeUpdate(e: DocumentEvent) = applyFilter()
             override fun changedUpdate(e: DocumentEvent) = applyFilter()
         })
-        pdfOnly.addActionListener { settings?.putBoolean(PDF_ONLY, pdfOnly.isSelected); applyFilter() }
+        pdfOnly.addActionListener {
+            settings?.putBoolean(PDF_ONLY, pdfOnly.isSelected)
+            xmlToo.isEnabled = pdfOnly.isSelected
+            applyFilter()
+        }
+        xmlToo.isEnabled = pdfOnly.isSelected
+        xmlToo.addActionListener { settings?.putBoolean(XML_TOO, xmlToo.isSelected); applyFilter() }
+        withXmlOnly.addActionListener { applyFilter() }
         resultFilter.addActionListener { applyFilter() }
         (bucket.editor.editorComponent as? JTextField)?.addActionListener { load() }
 
@@ -299,6 +350,16 @@ class BucketTemplateTestView(
         }
         columnModel.getColumn(FileColumns.NAME).cellRenderer = fullTextRenderer
         columnModel.getColumn(FileColumns.TEMPLATE).cellRenderer = fullTextRenderer
+        columnModel.getColumn(FileColumns.XML).cellRenderer = object : DefaultTableCellRenderer() {
+            init { horizontalAlignment = CENTER }
+            override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component {
+                val model = table.convertRowIndexToModel(row)
+                return super.getTableCellRendererComponent(table, value, selected, focus, row, column).also {
+                    toolTipText = files.xmlDescription(model)
+                    if (!selected) foreground = if (files.rows[model].isPdf) MATCH_COLOR else Color.GRAY
+                }
+            }
+        }
         columnModel.getColumn(FileColumns.RESULT).cellRenderer = object : DefaultTableCellRenderer() {
             override fun getTableCellRendererComponent(table: JTable, value: Any?, selected: Boolean, focus: Boolean, row: Int, column: Int): Component {
                 val result = files.resultAt(table.convertRowIndexToModel(row))
@@ -307,7 +368,7 @@ class BucketTemplateTestView(
                 }
             }
         }
-        listOf(300 to 120, 70 to 60, 140 to 130, 45 to 40, 110 to 90, 260 to 100, 60 to 50).forEachIndexed { index, (preferred, minimum) ->
+        listOf(300 to 120, 70 to 60, 140 to 130, 45 to 40, 40 to 35, 110 to 90, 260 to 100, 60 to 50).forEachIndexed { index, (preferred, minimum) ->
             columnModel.getColumn(index).apply { preferredWidth = preferred; minWidth = minimum }
         }
         selectionModel.addListSelectionListener { if (!it.valueIsAdjusting) selectionChanged() }
@@ -374,14 +435,15 @@ class BucketTemplateTestView(
             settings?.put(PREFIX, prefixText)
         }
         val current = when (mode) {
-            ListMode.BUCKET -> sourceFor(name)
-            ListMode.DOWNLOADS -> DownloadedFilesSource(sourceFor(name), downloadCache)
-            ListMode.TEST_FILES -> LocalFolderSource(folder!!, include = BucketFile::isPdf)
+            ListMode.BUCKET -> GcsBucketSource(name)
+            ListMode.DOWNLOADS -> DownloadedFilesSource(GcsBucketSource(name), downloadCache)
+            ListMode.TEST_FILES -> LocalFolderSource(folder!!, include = { it.isPdf || it.isXml })
         }
         source = current
+        lookup = (current as? DownloadedFilesSource)?.online ?: current
+        listedPrefix = null
         val token = ++listingToken
         previewToken++
-        previewing = false
         files.clear(current.bucket)
         shown = null
         shownPdf = null
@@ -389,11 +451,12 @@ class BucketTemplateTestView(
         details.text = ""
         preview.showMessage("Select a file to preview it.")
         showResult()
+        resetXml()
         val location = if (folder != null && mode == ListMode.TEST_FILES) folder.resolve(prefixText).path else "gs://$name/$prefixText"
         val target = when (mode) {
             ListMode.BUCKET -> location
             ListMode.DOWNLOADS -> "the files downloaded from $location"
-            ListMode.TEST_FILES -> "the test PDFs in $location"
+            ListMode.TEST_FILES -> "the test files in $location"
         }
         status.text = "Listing $target …"
         val worker = object : SwingWorker<Int, List<BucketFile>>() {
@@ -410,7 +473,12 @@ class BucketTemplateTestView(
             // Chunks may still arrive after done(); keep them unless a newer listing has started.
             override fun process(chunks: List<List<BucketFile>>) {
                 if (token != listingToken) return
-                files.add(chunks.flatten())
+                val paired = files.add(chunks.flatten())
+                if (paired.isNotEmpty()) {
+                    // Rows listed earlier that now have their PDF or XML.
+                    if (withXmlOnly.isSelected) applyFilter()
+                    if (shown?.documentPrefix in paired) { showDetails(); xmlChanged() }
+                }
                 if (listing === this) status.text = "Listing $target … ${files.rowCount} files so far"
             }
 
@@ -422,13 +490,15 @@ class BucketTemplateTestView(
                     isCancelled -> "Stopped listing $target. The list is incomplete."
                     else -> try {
                         val found = get()
+                        // Downloads are some of the bucket's files only.
+                        if (mode != ListMode.DOWNLOADS) listedPrefix = prefixText
                         when {
                             mode == ListMode.BUCKET ->
                                 "Listed $found files from $location" + if (found == 0) " — the bucket or prefix is empty." else "."
-                            found == 0 -> "No ${if (mode == ListMode.DOWNLOADS) "files downloaded from" else "test PDFs in"} $location."
+                            found == 0 -> "No ${if (mode == ListMode.DOWNLOADS) "files downloaded from" else "test files in"} $location."
                             mode == ListMode.DOWNLOADS ->
                                 "Listed $found file${plural(found)} downloaded from $location. Press Load to list the bucket again."
-                            else -> "Listed $found test PDF${plural(found)} in $location. Press Load to list the bucket again."
+                            else -> "Listed $found test file${plural(found)} in $location. Press Load to list the bucket again."
                         }
                     } catch (error: Exception) {
                         val cause = if (error is ExecutionException) error.cause ?: error else error
@@ -470,8 +540,8 @@ class BucketTemplateTestView(
         showDetails()
         showResult()
         updateControls()
+        xmlChanged()
         val token = ++previewToken
-        previewing = true
         val cached = downloadCache.cachedFile(current.bucket, file) != null
         preview.showMessage(if (cached) "Opening ${file.fileName} from the download folder …"
             else "Downloading ${file.fileName} (${formatSize(file.size)}) …", file.fileName)
@@ -490,7 +560,6 @@ class BucketTemplateTestView(
                 if (closed) return
                 if (!cached) downloadFolder.refresh()
                 if (token != previewToken) return
-                previewing = false
                 runCatching { get() }.onSuccess { (bytes, content) ->
                     preview.show(file.fileName, bytes, content)
                     shownPdf = (content as? PreviewContent.Pdf)?.info
@@ -737,6 +806,8 @@ class BucketTemplateTestView(
             line("Date added", formatTime(file.created))
             line("Content type", file.contentType)
             file.reference?.let { line("JournalpostId", it.journalpostId); line("DokumentInfoId", it.dokumentInfoId) }
+            if (file.isPdf) line("XML", files.xmlOf(file)?.fileName)
+            else if (file.isXml) line("PDF", files.pdfOf(file)?.fileName)
             source?.let { downloadCache.cachedFile(it.bucket, file) }?.let { line("Downloaded to", it.path) }
             shownPdf?.let { pdf ->
                 line("PDF pages", pdf.pages.size)
@@ -749,7 +820,7 @@ class BucketTemplateTestView(
         details.caretPosition = 0
     }
 
-    /** The "Test result" tab: the template pages found in the shown file, the first selected. */
+    /** The test result in the middle: the template pages found in the shown file, the first selected. */
     private fun showResult() {
         val file = shown
         val result = file?.let { results[files.key(it)] }
@@ -796,8 +867,11 @@ class BucketTemplateTestView(
         results[files.key(file)]?.outcomes?.firstOrNull { it.template.position == page }?.template?.file
 
     private fun showOutcome(outcome: TemplateOutcome?) {
+        shownOutcome = outcome
+        fieldTable.show(shownFields(), shownOcr(), shownSegments(), shownCheckboxes(), shownResult)
         if (outcome == null) {
             images.panes = emptyList()
+            showSegments.isEnabled = false
             val result = shownResult
             outcomeText.text = when {
                 shown == null -> "Select a file in the list."
@@ -810,27 +884,197 @@ class BucketTemplateTestView(
         val image = outcome.previewImage()
         val template = outcome.template
         val fields = previewBoxes(template.template.felter.map { Rectangle(it.x, it.y, it.bredde, it.hoyde) }, outcome.previewScale)
+        val segments = shownSegments().orEmpty()
+        showSegments.isEnabled = segments.isNotEmpty()
+        val regions = if (!showSegments.isSelected) emptyList() else previewBoxes(segments.map { it.box }, outcome.previewScale)
+        val checkboxes = checkboxStates()
         images.panes = if (image == null) emptyList() else listOf(GuidePane(
-            "The PDF page aligned to ${template.label} (black), template on top (red); green = fields.", image, fields))
+            "${template.label}: green = fields, magenta = OCR read nothing" +
+                (if (checkboxes.isEmpty()) "" else "; checkboxes: filled green = checked, blue = unchecked, magenta = uncertain") +
+                (if (regions.isEmpty()) "." else "; orange = line segments read."),
+            image, fields, unreadFields(), regions, checkboxes))
         outcomeText.text = buildString {
             appendLine("✓ ${template.label} — page ${template.position} of ${template.templateSize}")
             appendLine("The matcher found this template page in the file and aligned the PDF page to it (gray, at the template image's size). " +
                 "That aligned page is what the fields are read from, so the green boxes show where OCR looks.")
             if (image == null) appendLine("No picture: the template image could not be read.")
             shownResult?.takeIf { it.millis > 0 }?.let { appendLine("Time for the whole file: %.1f s".format(it.millis / 1000.0)) }
-            val fields = shownResult?.ocr?.getOrNull(outcomes.rows.indexOf(outcome))
+            val read = shownPage(shownResult?.reads)
             appendLine()
-            if (fields == null) appendLine(shownResult?.message?.ifEmpty { null } ?: "Fields: not read.")
+            if (read == null) appendLine(shownResult?.ocrError ?: "Fields: not read.")
             else {
-                appendLine("Fields read from the aligned page with lib's OCR (${fields.size}):")
-                append(fieldLines(fields))
+                appendLine("Fields (${read.values.size}) — [how sure Tesseract is of each line]:")
+                append(fieldLines(read))
+                append(leftOutSegments(segments))
             }
         }
         outcomeText.caretPosition = 0
     }
 
-    /** The file's bytes from the download folder, downloaded first if needed. Not on the EDT. */
+    /** Shows the shown template page again, e.g. with or without its line segments. */
+    private fun refreshOutcome() = showOutcome(shownOutcome)
+
+    /** The fields of the template page "Test result" shows, in the order their boxes are drawn. */
+    private fun shownFields(): List<Felter> = shownOutcome?.template?.template?.felter.orEmpty()
+
+    /** What lib's OCR read in the fields of the shown template page; null when not read. */
+    private fun shownOcr(): OcrFields? = shownPage(shownResult?.ocr)
+
+    /** The shown template page's entry of [pages], one per page of the result. */
+    private fun <T> shownPage(pages: List<T>?): T? = shownOutcome?.let { pages?.getOrNull(outcomes.rows.indexOf(it)) }
+
+    /** The line segments read on the shown template page, in the order they are drawn. */
+    private fun shownSegments(): List<FieldSegment>? = shownPage(shownResult?.segments)
+
+    /** The state of each checkbox on the shown template page; null when the page was not read. */
+    private fun shownCheckboxes(): Map<Felter, CheckboxReading>? = shownPage(shownResult?.checkboxes)
+
+    /** The state of each shown checkbox that was read, by its index among the shown fields. */
+    private fun checkboxStates(): Map<Int, CheckboxState> {
+        val checkboxes = shownCheckboxes() ?: return emptyMap()
+        return shownFields().withIndex().mapNotNull { (index, field) -> checkboxes[field]?.let { index to it.state } }.toMap()
+    }
+
+    /**
+     * The indices of the shown fields that need a look, drawn magenta: text fields the OCR read nothing in, and
+     * checkboxes ([skipsOcr]) neither checked nor unchecked. None when the fields were not read.
+     */
+    private fun unreadFields(): Set<Int> {
+        val ocr = shownOcr() ?: return emptySet()
+        val checkboxes = shownCheckboxes().orEmpty()
+        return shownFields().indices.filterTo(LinkedHashSet()) {
+            val field = shownFields()[it]
+            if (field.type.skipsOcr) checkboxes[field]?.state.let { state -> state == null || state == CheckboxState.UNCERTAIN }
+            else ocr[field]?.lines.isNullOrEmpty()
+        }
+    }
+
+    /** The tooltip of field [index] on the page: what the OCR read in it, each line with its confidence. */
+    private fun describeField(index: Int): String? {
+        val field = shownFields().getOrNull(index) ?: return null
+        val ocr = shownOcr()
+        return buildString {
+            append("<b>${escape(field.navn)}</b> (${field.type})<br>")
+            when {
+                field.type.skipsOcr -> append(escape(checkboxText(shownCheckboxes()?.get(field)).replaceFirstChar(Char::uppercase)) + "<br>" + escape(CHECKBOX_READ))
+                ocr == null -> append("Not read")
+                else -> append("Read: " + (ocr[field]?.lines?.ifEmpty { null }?.let { "“${escape(withConfidence(it))}”" } ?: "nothing"))
+            }
+        }
+    }
+
+    /** The tooltip of line segment [index] on the page. */
+    private fun describeSegmentAt(index: Int): String? = shownSegments()?.getOrNull(index)?.let(::describeSegment)
+
+    /** A line segment's tooltip: its field, and what was read in it and whether each line was used. */
+    private fun describeSegment(segment: FieldSegment): String = buildString {
+        append("Line segment in <b>${escape(segment.field.navn)}</b> (${segment.field.type})<br>")
+        if (segment.lines.isEmpty()) append("Read nothing")
+        append(segment.lines.joinToString("<br>") { line ->
+            "Read: “${escape(withConfidence(listOf(line.region)))}” — ${escape(line.leftOut?.let { "left out: ${it.description}" } ?: "used")}"
+        })
+    }
+
     private fun fetch(source: BucketSource, file: BucketFile): ByteArray = downloadCache.using(source, file) { it.readBytes() }
+
+    /** Forgets the XML shown; nothing is shown. */
+    private fun resetXml() {
+        xmlToken++
+        showXmlMessage("Select a PDF to see its XML.", " ", besideOcr = false)
+        tabs.setTitleAt(XML_TAB, "XML")
+    }
+
+    /** After the shown file, or what the list knows of its XML, changed: shows its XML again, below the OCR fields and in the XML tab. */
+    private fun xmlChanged() {
+        val file = shown
+        tabs.setTitleAt(XML_TAB, if (file != null && (file.isXml || files.xmlOf(file) != null)) "XML ✓" else "XML")
+        showXml()
+    }
+
+    /** Whether the list has every file whose name starts with [prefix], so a PDF whose XML it lacks has none. */
+    private fun listHasAll(prefix: String): Boolean = listedPrefix?.let(prefix::startsWith) == true
+
+    /**
+     * The XML of the shown PDF, or the shown XML itself, read off the EDT, in the XML tab and below the OCR fields.
+     * An XML the list lacks, while it may be incomplete, is looked for in the bucket.
+     */
+    private fun showXml() {
+        val file = shown
+        val current = source
+        if (file == null || current == null) { resetXml(); return }
+        val token = ++xmlToken
+        val listed = if (file.isXml && !file.isPdf) file else files.xmlOf(file)
+        val prefix = file.documentPrefix
+        val where = lookup?.takeIf { listed == null && file.isPdf && prefix != null && !listHasAll(prefix) }
+        when {
+            listed != null -> showXmlMessage("Reading ${listed.fileName} …", listed.fileName, besideOcr = true)
+            // Next to the OCR only once found: most PDFs have none.
+            where != null -> showXmlMessage("Looking for the XML of ${file.fileName} …", file.fileName, besideOcr = false)
+            else -> { showXmlMessage(noXml(file, current), file.fileName, besideOcr = false); return }
+        }
+        object : SwingWorker<Pair<BucketFile, XmlContent>?, Unit>() {
+            override fun doInBackground(): Pair<BucketFile, XmlContent>? {
+                val found = listed ?: xmlFor(file, where!!.pages(prefix!!).flatten().asIterable()) ?: return null
+                return found to XmlContent.of(fetch(current, found))
+            }
+
+            override fun done() {
+                if (closed || token != xmlToken) return
+                runCatching { get() }.onSuccess { result ->
+                    if (result == null) showXmlMessage(noXml(file, current), file.fileName, besideOcr = false) else {
+                        val (found, content) = result
+                        xml.show(found.fileName, current.location(found.name), content)
+                        xmlBesideOcr.show(found.fileName, current.location(found.name), content)
+                        setXmlBesideOcr(true)
+                        tabs.setTitleAt(XML_TAB, "XML ✓")
+                    }
+                }.onFailure { error ->
+                    val cause = if (error is ExecutionException) error.cause ?: error else error
+                    showXmlMessage("Could not ${if (listed == null) "look for" else "read"} the XML of ${file.fileName}:\n" +
+                        describeGcpError(cause), file.fileName, besideOcr = true)
+                }
+                downloadFolder.refresh()
+            }
+        }.execute()
+    }
+
+    /** [text] in the XML tab, and below the OCR fields when [besideOcr]; otherwise the OCR fields are alone. */
+    private fun showXmlMessage(text: String, heading: String, besideOcr: Boolean) {
+        xml.showMessage(text, heading)
+        xmlBesideOcr.showMessage(text, heading)
+        setXmlBesideOcr(besideOcr)
+    }
+
+    /** The test result with the XML below the OCR fields, or the OCR fields alone, as they were before XMLs were shown. */
+    private fun setXmlBesideOcr(visible: Boolean) {
+        if (visible == xmlShownBesideOcr) return
+        xmlShownBesideOcr = visible
+        fields.removeAll()
+        if (visible) {
+            ocrFields.border = BorderFactory.createTitledBorder("OCR — what lib's OCR read")
+            // As tall as the OCR fields with their title, so the two get half each.
+            xmlBesideOcr.preferredSize = ocrFields.preferredSize
+            fieldsSplit.topComponent = ocrFields
+            fields.add(fieldsSplit)
+        } else {
+            ocrFields.border = ocrFieldsBorder
+            fields.add(ocrFields)
+        }
+        fields.revalidate()
+        fields.repaint()
+    }
+
+    /** Why [file], shown from [current], has no XML. */
+    private fun noXml(file: BucketFile, current: BucketSource): String {
+        val reference = file.reference
+        return when {
+            !file.isPdf -> "Only PDFs have an XML."
+            reference == null -> "${file.fileName} is not named <journalpostId>_<dokumentInfoId>_<file UUID>.pdf, " +
+                "so its XML cannot be found."
+            else -> "No XML for journalpost ${reference.journalpostId}, dokumentInfo ${reference.dokumentInfoId}:\n" +
+                "nothing named ${file.documentPrefix}….xml in ${current.location("").removeSuffix("/")}."
+        }
+    }
 
     /** Shows the previewed file in the download folder. */
     private fun revealShown() {
@@ -839,12 +1083,12 @@ class BucketTemplateTestView(
         if (cached == null) status.text = "${file.fileName} is not downloaded yet." else downloadFolder.reveal(cached)
     }
 
-    /** Saves the previewed file, exactly as stored in the bucket, where [chooseDownloadTarget] says. */
+    /** Saves the previewed file, exactly as stored in the bucket, where [askDownloadTarget] says. */
     private fun downloadShown() {
         val file = shown ?: return
         val current = source ?: return
         if (downloading) return
-        val target = chooseDownloadTarget(file)?.absoluteFile ?: return
+        val target = askDownloadTarget(file)?.absoluteFile ?: return
         downloading = true
         updateControls()
         status.text = "Saving ${file.fileName} to ${target.parent} …"
@@ -942,7 +1186,7 @@ class BucketTemplateTestView(
             groups = templateGroups(),
             canOpenEditor = onTemplateCreated != null,
         )
-        val request = askTemplateRequest(input)
+        val request = CreateTemplateDialog.ask(this, input, library)
         if (request == null || closed) { status.text = "No template created."; return }
         val label = when (val target = request.target) {
             is TemplateTarget.New -> target.name
@@ -996,11 +1240,15 @@ class BucketTemplateTestView(
     private fun applyFilter() {
         val text = filter.text.trim().lowercase()
         val onlyPdf = pdfOnly.isSelected
+        val alsoXml = xmlToo.isSelected
+        val paired = withXmlOnly.isSelected
         val showing = resultFilter.selectedItem as ShowFilter
         sorter.rowFilter = object : RowFilter<FileTableModel, Int>() {
             override fun include(entry: Entry<out FileTableModel, out Int>): Boolean {
-                val file = files.rows[entry.identifier]
-                return (!onlyPdf || file.isPdf) && (text.isEmpty() || text in file.name.lowercase()) && showing.accepts(files.resultAt(entry.identifier))
+                val row = entry.identifier
+                val file = files.rows[row]
+                return (!onlyPdf || file.isPdf || (alsoXml && file.isXml)) && (!paired || files.paired(row)) &&
+                    (text.isEmpty() || text in file.name.lowercase()) && showing.accepts(files.resultAt(row))
             }
         }
         updateCount()
@@ -1010,10 +1258,11 @@ class BucketTemplateTestView(
         val tested = files.rows.count { results[files.key(it)]?.status?.finished == true }
         val what = when (source) {
             is DownloadedFilesSource -> "downloaded files"
-            is LocalFolderSource -> "test PDFs"
+            is LocalFolderSource -> "test files"
             else -> "files"
         }
-        count.text = "Showing ${table.rowCount} of ${files.rowCount} $what (${formatSize(files.totalBytes)}), $tested tested"
+        count.text = "Showing ${table.rowCount} of ${files.rowCount} $what (${formatSize(files.totalBytes)}), $tested tested, " +
+            "${files.pdfsWithXml} PDF${plural(files.pdfsWithXml)} with XML"
     }
 
     private fun updateControls() {
@@ -1067,6 +1316,7 @@ class BucketTemplateTestView(
         listing = null
         listingToken++
         previewToken++
+        xmlToken++
         // A running test still uses the template features; the run frees them when it ends.
         if (job == null) closePrepared()
     }
@@ -1077,31 +1327,65 @@ class BucketTemplateTestView(
         const val SIZE = 1
         const val CREATED = 2
         const val PAGES = 3
-        const val RESULT = 4
-        const val TEMPLATE = 5
-        const val TIME = 6
-        val NAMES = listOf("Name", "Size", "Date added", "Pages", "Result", "Template", "Time")
+        const val XML = 4
+        const val RESULT = 5
+        const val TEMPLATE = 6
+        const val TIME = 7
+        val NAMES = listOf("Name", "Size", "Date added", "Pages", "XML", "Result", "Template", "Time")
+    }
+
+    /** The rows of one scanned document's PDFs and XMLs, which have the same [BucketFile.documentPrefix]. */
+    private class Document {
+        val pdfs = ArrayList<Int>(1)
+        val xmls = ArrayList<Int>(1)
+        val paired: Boolean get() = pdfs.isNotEmpty() && xmls.isNotEmpty()
     }
 
     private inner class FileTableModel : AbstractTableModel() {
         val rows = ArrayList<BucketFile>()
         private val index = HashMap<String, Int>()
+        /** Each row's [BucketFile.documentPrefix], worked out once. */
+        private val prefixes = ArrayList<String?>()
+        private val documents = HashMap<String, Document>()
         var bucket = ""
             private set
         var totalBytes = 0L
             private set
 
-        fun add(page: List<BucketFile>) {
-            if (page.isEmpty()) return
+        /** How many listed PDFs have an XML. */
+        val pdfsWithXml: Int get() = documents.values.sumOf { if (it.xmls.isEmpty()) 0 else it.pdfs.size }
+
+        /** Adds a page of the listing. Returns the documents with rows listed earlier that now have both a PDF and an XML. */
+        fun add(page: List<BucketFile>): Set<String> {
+            if (page.isEmpty()) return emptySet()
             val first = rows.size
-            page.forEach { index[key(it)] = rows.size; rows += it }
+            val paired = HashSet<String>()
+            page.forEach { file ->
+                val row = rows.size
+                index[key(file)] = row
+                rows += file
+                val prefix = file.documentPrefix
+                prefixes += prefix
+                val document = prefix?.let { documents.getOrPut(it, ::Document) } ?: return@forEach
+                val wasPaired = document.paired
+                when {
+                    file.isPdf -> document.pdfs += row
+                    file.isXml -> document.xmls += row
+                }
+                if (!wasPaired && document.paired && (document.pdfs + document.xmls).any { it < first }) paired += prefix
+            }
             totalBytes += page.sumOf { it.size }
             fireTableRowsInserted(first, rows.size - 1)
+            paired.flatMap { documents.getValue(it).let { document -> document.pdfs + document.xmls } }.filter { it < first }
+                .forEach { fireTableRowsUpdated(it, it) }
+            return paired
         }
 
         fun clear(bucketName: String) {
             rows.clear()
             index.clear()
+            prefixes.clear()
+            documents.clear()
             totalBytes = 0
             bucket = bucketName
             fireTableDataChanged()
@@ -1110,6 +1394,30 @@ class BucketTemplateTestView(
         fun key(file: BucketFile) = resultKey(bucket, file)
 
         fun resultAt(row: Int): PdfTestResult? = results[key(rows[row])]
+
+        /** Whether the PDF or XML in [row] has its XML or PDF in the list. */
+        fun paired(row: Int): Boolean = (rows[row].isPdf || rows[row].isXml) && prefixes[row]?.let { documents[it] }?.paired == true
+
+        /** The listed XML of [file], a PDF, the newest if there are several. */
+        fun xmlOf(file: BucketFile): BucketFile? =
+            if (!file.isPdf) null else documentOf(file)?.let { document -> xmlFor(file, document.xmls.map(rows::get)) }
+
+        /** The listed PDF of [file], an XML, the newest if there are several. */
+        fun pdfOf(file: BucketFile): BucketFile? =
+            documentOf(file)?.pdfs?.map(rows::get)?.maxWithOrNull(compareBy(nullsFirst()) { it.created })
+
+        /** For the XML column's tooltip. */
+        fun xmlDescription(row: Int): String? {
+            val file = rows[row]
+            return when {
+                file.isPdf -> xmlOf(file)?.let { "Has an XML: ${it.fileName}. The XML tab shows it." }
+                file.isXml -> pdfOf(file)?.let { "The XML of ${it.fileName}." } ?: "An XML; the list has no PDF of this document."
+                else -> null
+            }
+        }
+
+        private fun documentOf(file: BucketFile): Document? =
+            (index[key(file)]?.let(prefixes::get) ?: file.documentPrefix)?.let(documents::get)
 
         fun updated(key: String) {
             index[key]?.let { fireTableRowsUpdated(it, it) }
@@ -1134,6 +1442,11 @@ class BucketTemplateTestView(
                 FileColumns.SIZE -> file.size
                 FileColumns.CREATED -> file.created
                 FileColumns.PAGES -> result?.pages
+                FileColumns.XML -> when {
+                    file.isPdf -> if (paired(row)) "✓" else ""
+                    file.isXml -> "XML"
+                    else -> ""
+                }
                 FileColumns.RESULT -> result?.status
                 FileColumns.TEMPLATE -> result?.templateText.orEmpty()
                 else -> result?.takeIf { it.status.finished }?.millis?.takeIf { it > 0 }
@@ -1146,6 +1459,7 @@ class BucketTemplateTestView(
         private const val BUCKET = "bucket"
         private const val PREFIX = "prefix"
         private const val PDF_ONLY = "pdfOnly"
+        private const val XML_TOO = "templateTestXmlToo"
         private const val RUN_COUNT = "templateTestRunCount"
         private const val DOWNLOAD_FOLDER = "downloadFolder"
         private const val CHOSEN_TEMPLATES = "templateTestTemplates"
@@ -1154,6 +1468,7 @@ class BucketTemplateTestView(
         private const val PREVIEW_DELAY_MS = 150
         private const val RESULT_TAB = 1
         private const val COMPARE_TAB = 2
+        private const val XML_TAB = 3
 
         /**
          * Opens the view in its own window and lists the last used bucket. [onTemplateCreated] gets the page files

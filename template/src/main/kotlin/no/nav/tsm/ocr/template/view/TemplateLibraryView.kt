@@ -23,21 +23,11 @@ private data class PageEntry(val file: File) {
 }
 
 class TemplateLibraryView(
-    private val library: TemplateLibrary = TemplateLibrary(),
     private val onPageDeleted: (File) -> Unit = {},
-    private val confirmDelete: (File) -> Boolean = { file ->
-        JOptionPane.showConfirmDialog(
-            null,
-            "Delete ${file.parentFile.name}, including its layout and images? Open editors for this page will be closed.",
-            "Delete page",
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.WARNING_MESSAGE,
-        ) == JOptionPane.YES_OPTION
-    },
-    private val requestPageNumber: ((Int) -> Int?)? = null,
     private val onPageRenumbered: (File, File) -> Unit = { _, _ -> },
     private val onOpenPage: (File) -> Unit,
 ) : JPanel(BorderLayout()) {
+    private val library = TemplateLibrary()
     val tree = JTree(DefaultMutableTreeNode("Templates"))
     private val status = JLabel()
     private val addPage = JButton("Add page").apply {
@@ -191,7 +181,6 @@ class TemplateLibraryView(
     }
 
     private fun choosePageNumber(initial: Int): Int? {
-        requestPageNumber?.let { return it(initial) }
         val number = JSpinner(SpinnerNumberModel(initial, 1, Int.MAX_VALUE, 1))
         val panel = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             add(JLabel("Page number:"))
@@ -228,7 +217,13 @@ class TemplateLibraryView(
             status.text = "Select a page layout to delete."
             return
         }
-        if (!confirmDelete(page.file)) return
+        if (JOptionPane.showConfirmDialog(
+                this,
+                "Delete ${page.file.parentFile.name}, including its layout and images? Open editors for this page will be closed.",
+                "Delete page",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE,
+            ) != JOptionPane.YES_OPTION) return
         runCatching { library.deletePage(group, page.file) }
             .onSuccess { onPageDeleted(page.file); refresh(group.file) }
             .onFailure {

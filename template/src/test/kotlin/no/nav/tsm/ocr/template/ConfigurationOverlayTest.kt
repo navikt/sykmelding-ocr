@@ -77,7 +77,7 @@ class ConfigurationOverlayTest {
     }
 
     @Test
-    fun `changing documents configurations or reference clears stale applied overlays`() {
+    fun `changing documents or configurations clears stale applied overlays`() {
         val file = configuration()
         SwingUtilities.invokeAndWait {
             val view = ImageComparisonView()
@@ -92,12 +92,6 @@ class ConfigurationOverlayTest {
 
             apply.doClick()
             view.loadConfiguration(file)
-            assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
-            apply.doClick()
-            view.loadReference(image())
-            assertFalse(apply.isEnabled)
-            assertTrue(descendants(view).filterIsInstance<JList<*>>().all { it.model.size == 0 })
-            assertEquals(Color.WHITE.rgb, render(view.templatePanal).getRGB(40, 50))
             assertEquals(Color.WHITE.rgb, render(view.secondPanel).getRGB(40, 50))
         }
     }

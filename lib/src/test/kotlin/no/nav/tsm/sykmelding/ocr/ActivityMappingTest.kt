@@ -1,5 +1,8 @@
 package no.nav.tsm.sykmelding.ocr
 
+import no.nav.tsm.sykmelding.model.CheckboxState.CHECKED
+import no.nav.tsm.sykmelding.model.CheckboxState.UNCERTAIN
+import no.nav.tsm.sykmelding.model.CheckboxState.UNCHECKED
 import no.nav.tsm.sykmelding.model.OcrParserAktivitet
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import org.junit.jupiter.api.AfterEach
@@ -26,13 +29,13 @@ class ActivityMappingTest {
 
     @Test
     fun `activities are omitted when either date is missing or blank`() {
-        assertEquals(emptyList(), parser.mapThreePage2019Activities(emptyMap()))
+        assertEquals(emptyList(), parser.mapThreePage2019Activities(emptyMap(), emptyMap()))
 
         for (missing in listOf(null, "", " \t\n")) {
             for ((start, end) in listOf(missing to tom, fom to missing, missing to missing)) {
                 assertEquals(
                     emptyList(),
-                    parser.mapThreePage2019Activities(dateFields(start, end)),
+                    parser.mapThreePage2019Activities(dateFields(start, end), emptyMap()),
                     "Expected no activities for fom=$start and tom=$end",
                 )
             }
@@ -43,22 +46,32 @@ class ActivityMappingTest {
     fun `complete activities retain their order dates and other properties`() {
         val fields = dateFields(fom, tom) + mapOf(
             "aktivitet.gradert.grad" to "50",
-            "aktivitet.gradert.reisetilskudd" to "true",
-            "aktivitet.medisinskeArsaker" to "true",
-            "aktivitet.forholdArbeidsplassen" to "true",
             "aktivitet.behandlingsdager.dager" to "2",
+        )
+        val checkboxes = mapOf(
+            "aktivitet.gradert.reisetilskudd" to CHECKED,
+            "aktivitet.medisinskeArsaker" to UNCHECKED,
+            "aktivitet.forholdArbeidsplassen" to UNCERTAIN,
         )
 
         assertEquals(
             listOf(
                 OcrParserAktivitet.Avventende(fom, tom),
-                OcrParserAktivitet.Gradert(fom, tom, grad = 50, reisetilskudd = true),
-                OcrParserAktivitet.IkkeMulig(fom, tom, medisinskArsak = true, arbeidsrelatertArsak = true),
+                OcrParserAktivitet.Gradert(fom, tom, grad = 50, reisetilskudd = CHECKED),
+                OcrParserAktivitet.IkkeMulig(fom, tom, medisinskArsak = UNCHECKED, arbeidsrelatertArsak = UNCERTAIN),
                 OcrParserAktivitet.Behandlingsdager(fom, tom, antallBehandlingsdager = 2),
                 OcrParserAktivitet.Reisetilskudd(fom, tom),
             ),
-            parser.mapThreePage2019Activities(fields),
+            parser.mapThreePage2019Activities(fields, checkboxes),
         )
+    }
+
+    @Test
+    fun `a checkbox that was not read is uncertain, never unchecked`() {
+        val activities = parser.mapThreePage2019Activities(dateFields(fom, tom), emptyMap())
+
+        assertEquals(OcrParserAktivitet.Gradert(fom, tom, reisetilskudd = UNCERTAIN), activities[1])
+        assertEquals(OcrParserAktivitet.IkkeMulig(fom, tom, medisinskArsak = UNCERTAIN, arbeidsrelatertArsak = UNCERTAIN), activities[2])
     }
 
     @Test
@@ -79,7 +92,7 @@ class ActivityMappingTest {
                 OcrParserAktivitet.Gradert(fom, tom),
                 OcrParserAktivitet.Reisetilskudd(fom, tom),
             ),
-            parser.mapThreePage2019Activities(fields),
+            parser.mapThreePage2019Activities(fields, emptyMap()),
         )
     }
 

@@ -53,8 +53,6 @@ internal class BucketComparePanel(
     var requested: Triple<String, Int, File>? = null
         private set
 
-    internal val statusText: String get() = status.text
-
     /** Whether a document is set that can be loaded. */
     val canLoad: Boolean get() = documentName != null && bytes != null
 

@@ -120,7 +120,7 @@
     "hoyde" : 125,
     "navn" : "hoveddiagnose.kode",
     "id" : "580d2f52-585c-4a18-b2ae-91f7f902e99d",
-    "type" : "Text"
+    "type" : "Code"
   }, {
     "x" : 2063,
     "y" : 2898,
@@ -144,7 +144,7 @@
     "hoyde" : 125,
     "navn" : "bidiagnose.kode",
     "id" : "7232f088-09a7-4052-89fc-93c5aad4ebb7",
-    "type" : "Text"
+    "type" : "Code"
   }, {
     "x" : 2063,
     "y" : 3103,
@@ -202,29 +202,13 @@
     "id" : "88a0ba34-6755-4f3f-926c-619ce052cc8c",
     "type" : "Checkbox"
   }, {
-    "x" : 2129,
-    "y" : 746,
-    "bredde" : 901,
-    "hoyde" : 42,
-    "navn" : "side",
-    "id" : "dc18d0c8-9a41-49df-8206-1459ac607a82",
-    "type" : "Text"
-  }, {
-    "x" : 161,
-    "y" : 4015,
-    "bredde" : 1017,
-    "hoyde" : 34,
-    "navn" : "footer",
-    "id" : "e490c721-6617-44e3-8693-56c8f7ca7217",
-    "type" : "Text"
-  }, {
-    "x" : 158,
-    "y" : 724,
-    "bredde" : 1663,
-    "hoyde" : 50,
-    "navn" : "sykmelding-text",
-    "id" : "c50477ca-5324-4714-a3fb-abafcd30f1ce",
-    "type" : "Text"
+    "x" : 1599,
+    "y" : 1060,
+    "bredde" : 1435,
+    "hoyde" : 121,
+    "navn" : "startdatoSykefravar",
+    "id" : "fd0a554d-01d0-46f9-8790-6b956d12f755",
+    "type" : "Date"
   } ],
   "templateBilde" : "template.png",
   "gridSettings" : {
@@ -270,6 +254,5 @@
     "x2" : 2926,
     "y2" : 2314
   } ],
-  "requiredText" : null,
-  "referansepunkter" : [ "reference-21e44d99-16f6-4521-bccc-64ce76a16138.png", "reference-0143128d-eb7a-4177-ae79-ce414d8d19d2.png", "reference-f89d5402-1b90-4fc6-83ec-b046bf5ea99e.png", "reference-36b8fd61-7d61-4829-bb7e-f7326e0eda8e.png" ]
+  "referansepunkter" : [ ]
 }

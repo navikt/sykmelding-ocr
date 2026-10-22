@@ -63,10 +63,7 @@ class LoadedTemplate(
     val keypoints: KeyPointVector,
     val descriptors: Mat,
     val lines: Mat,
-    referenceImages: () -> List<BufferedImage> = { emptyList() },
 ) : AutoCloseable {
-    val referenceImages: List<BufferedImage> by lazy(referenceImages)
-
     override fun close() {
         keypoints.close(); descriptors.close(); lines.close()
     }
@@ -93,23 +90,6 @@ class TemplateMatcher(
         akaze.close()
     }
 
-    private fun matchWithRefPoints(pdf: File): TemplateMatchResult {
-        val pages = Loader.loadPDF(pdf).use { document ->
-            if (document.numberOfPages > maxPages) return TemplateMatchResult.TooManyPages(document.numberOfPages, maxPages)
-
-            pdfToImages(document)
-        }
-
-        for(template in templates) {
-            val matched = matchesTemplateFromReferenceImages(template, pages)
-            if (matched is TemplateMatchResult.Matched) return TemplateMatchResult.NoMatch
-        }
-
-        return TemplateMatchResult.NoMatch
-
-    }
-
-
     private fun match(pdf: File): TemplateMatchResult {
         val pages = Loader.loadPDF(pdf).use { document ->
             if (document.numberOfPages > maxPages) return TemplateMatchResult.TooManyPages(document.numberOfPages, maxPages)
@@ -127,25 +107,6 @@ class TemplateMatcher(
         } finally {
             prepared.forEach { it.close() }
         }
-    }
-    private fun matchesTemplateFromReferenceImages(
-        template: TemplateGroup,
-        pages: List<BufferedImage>
-    ): TemplateMatchResult {
-        val refimageMatches = loaded.getValue(template).associate { template ->
-            val page =
-                pages.firstOrNull { page -> matchesRefImage(page, template) } ?: return TemplateMatchResult.NoMatch
-            template.template to page
-        }
-
-        return TemplateMatchResult.Matched(template, refimageMatches)
-    }
-
-    private fun matchesRefImage(
-        page: BufferedImage,
-        template: LoadedTemplate
-    ): Boolean {
-        TODO("Not yet implemented")
     }
 
     private fun matchesTemplate(template: TemplateGroup, pages: List<PreparedPage>): TemplateMatchResult {
@@ -207,9 +168,7 @@ class TemplateMatcher(
             Mat().use { mask -> akaze.detectAndCompute(gray, mask, keypoints, descriptors) }
             formLines(gray)
         }
-        return LoadedTemplate(template, image.width, image.height, keypoints, descriptors, lines) {
-            template.referansepunkter.map { ImageIO.read(folder.resolve(it)) }
-        }
+        return LoadedTemplate(template, image.width, image.height, keypoints, descriptors, lines)
     }
 
     private fun pointMat(points: List<Point2f>): Mat = Mat(points.size, 1, CV_32FC2).apply {

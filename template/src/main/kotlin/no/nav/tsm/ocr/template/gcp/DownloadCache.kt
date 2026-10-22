@@ -60,7 +60,7 @@ class DownloadCache(
      * characters than letters, digits, '.', '_' and '-') cannot be named, so they are left out.
      */
     fun downloads(bucket: String): List<BucketFile> {
-        val folder = directory.resolve(safeName(bucket, MAX_STEM))
+        val folder = directory.resolve(safeName(bucket))
         val stored = folder.listFiles()?.filter { it.isFile && !it.name.startsWith(".") }.orEmpty()
         return stored.mapNotNull { file ->
             val (stem, kind, number, extension) = STORED_NAME.matchEntire(file.name)?.destructured ?: return@mapNotNull null
@@ -123,11 +123,11 @@ class DownloadCache(
         val dot = local.lastIndexOf('.')
         val extension = if (dot <= 0) null else local.substring(dot + 1).lowercase().takeIf { it.length in 1..10 && it.all(Char::isLetterOrDigit) }
         val stem = if (extension == null) local else local.substring(0, dot)
-        val safeStem = safeName(stem, MAX_STEM)
+        val safeStem = safeName(stem)
         val version = file.generation?.let { "g$it" } ?: "s${file.size}"
         // Names that had to be changed get a hash of the real name, so two objects never share a file.
         val unique = if (safeStem != stem || local != file.name) "-" + hash(file.name) else ""
-        return directory.resolve(safeName(bucket, MAX_STEM)).resolve("$safeStem@$version$unique" + (extension?.let { ".$it" } ?: ""))
+        return directory.resolve(safeName(bucket)).resolve("$safeStem@$version$unique" + (extension?.let { ".$it" } ?: ""))
     }
 
     /**
@@ -237,10 +237,10 @@ class DownloadCache(
             if (posix && Files.getPosixFilePermissions(path, NOFOLLOW_LINKS) != OWNER_ONLY) Files.setPosixFilePermissions(path, OWNER_ONLY)
         }
 
-        /** Letters, digits, '.', '_' and '-' only, not starting with '.', at most [max] characters. */
-        private fun safeName(text: String, max: Int): String =
+        /** Letters, digits, '.', '_' and '-' only, not starting with '.', at most [MAX_STEM] characters. */
+        private fun safeName(text: String): String =
             text.map { if (it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it in "._-") it else '_' }.joinToString("")
-                .take(max).trimStart('.').ifEmpty { "_" }
+                .take(MAX_STEM).trimStart('.').ifEmpty { "_" }
 
         private fun hash(text: String): String =
             MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).take(4).joinToString("") { "%02x".format(it) }
@@ -251,7 +251,7 @@ class DownloadCache(
  * [online]'s files listed from [cache] instead of the bucket (see [DownloadCache.downloads]), for when the bucket cannot
  * be listed: expired credentials, no network. A listed file deleted from the cache since is downloaded from [online].
  */
-internal class DownloadedFilesSource(private val online: BucketSource, private val cache: DownloadCache) : BucketSource {
+internal class DownloadedFilesSource(val online: BucketSource, private val cache: DownloadCache) : BucketSource {
     override val bucket: String get() = online.bucket
 
     override fun pages(prefix: String): Sequence<List<BucketFile>> = sequence {

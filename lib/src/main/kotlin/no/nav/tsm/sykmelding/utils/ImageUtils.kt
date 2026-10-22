@@ -37,12 +37,6 @@ fun toMat(bufferedImage: BufferedImage): Mat {
     return OpenCVFrameConverter.ToMat().convert(Java2DFrameConverter().convert(bufferedImage))
 }
 
-fun findCountours(
-    image: Mat,
-    mode: RetreivalMode = RetreivalMode.RETR_EXTERNAL,
-    method: RetreivalMethod = RetreivalMethod.CHAIN_APPROX_SIMPLE,
-): MatVector = findCountours(image, mode, method, Mat())
-
 private fun findCountours(image: Mat, mode: RetreivalMode, method: RetreivalMethod, hierarchy: Mat): MatVector {
     val gray = grayscale(image)
     val binary = Mat()
@@ -70,13 +64,6 @@ fun grayscale(image: Mat): Mat {
     }
     return gray
 }
-
-/** Detect cells from rules rather than from all ink (which also contains text). */
-fun findCellBoxes(
-    image: Mat,
-    settings: GridSettings = GridSettings(),
-    edits: List<GridEdit> = emptyList(),
-): List<ContourBox> = createGridMask(image, settings, edits).use { findGridCells(it, settings.minimumCellSize) }
 
 fun findContourBoxes(
     image: Mat,

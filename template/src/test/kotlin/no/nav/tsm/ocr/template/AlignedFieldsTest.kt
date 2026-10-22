@@ -258,7 +258,6 @@ class AlignedFieldsTest {
             { view.resetSecondImage() },
             { button(view, "Convert both to A4 at 400 DPI").doClick() },
             { button(view, "Match incoming size to template").doClick() },
-            { view.loadReference(image()) },
         )
         for (change in changes) {
             edt { button(view, "Apply reference images").doClick() }
