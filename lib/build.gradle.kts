@@ -80,6 +80,8 @@ tasks.named("build") {
 tasks.named<Test>("test") {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
+    maxHeapSize = "1g"
+    systemProperty("org.bytedeco.javacpp.maxPhysicalBytes", "8G")
 }
 
 publishing {
