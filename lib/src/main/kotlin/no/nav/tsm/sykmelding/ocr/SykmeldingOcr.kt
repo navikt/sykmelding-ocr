@@ -1,5 +1,7 @@
 package no.nav.tsm.sykmelding.ocr
 
+import no.nav.tsm.sykmelding.utils.tempDirectory
+import no.nav.tsm.sykmelding.utils.writingToTemp
 import org.bytedeco.javacpp.DoublePointer
 import org.bytedeco.javacv.Java2DFrameUtils
 import org.bytedeco.opencv.global.opencv_core.*
@@ -110,7 +112,7 @@ class Ocr() {
         private val languages = listOf("nor")
         private val auxFiles = listOf("osd")
 
-        private val dir: Path by lazy { Files.createTempDirectory("tessdata") }
+        private val dir: Path by lazy { tempDirectory("tessdata") }
 
        @Synchronized
         fun dirWith(language: String): Path {
@@ -120,8 +122,14 @@ class Ocr() {
                 val stream = TessData::class.java.getResourceAsStream("/tessdata/$name.traineddata")
                     ?: error("Missing /tessdata/$name.traineddata on classpath")
                 val part = dir.resolve("$name.traineddata.part")
-                stream.use { Files.copy(it, part, StandardCopyOption.REPLACE_EXISTING) }
-                Files.move(part, target, StandardCopyOption.REPLACE_EXISTING)
+                writingToTemp("copy the OCR model $name.traineddata to $dir") {
+                    try {
+                        stream.use { Files.copy(it, part, StandardCopyOption.REPLACE_EXISTING) }
+                        Files.move(part, target, StandardCopyOption.REPLACE_EXISTING)
+                    } finally {
+                        Files.deleteIfExists(part)
+                    }
+                }
             }
             return dir
         }

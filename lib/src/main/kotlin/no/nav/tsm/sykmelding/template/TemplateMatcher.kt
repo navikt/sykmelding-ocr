@@ -69,9 +69,9 @@ class LoadedTemplate(
     }
 }
 
-/** Matches PDFs to [templates], by default every template in [library]. */
+/** Matches PDFs to [templates], by default every template in [library]: those packaged in this library's resources. */
 class TemplateMatcher(
-    library: TemplateLibrary = TemplateLibrary(File("../templates")),
+    library: TemplateLibrary = TemplateLibrary.fromResources(),
     private val maxPages: Int = DEFAULT_MAX_PAGES,
     private val templates: List<TemplateGroup> = library.list(),
 ) : AutoCloseable {
@@ -79,19 +79,24 @@ class TemplateMatcher(
     private val akaze = AKAZE.create()
     private val loaded: Map<TemplateGroup, List<LoadedTemplate>> = templates.associateWith { group -> group.pageFiles.map { load(it)} }
 
-    fun matchPdf(pdf: File): TemplateMatchResult = try {
-        match(pdf)
-    } catch (e: Exception) {
-        TemplateMatchResult.Error(e)
-    }
+    fun matchPdf(pdf: File): TemplateMatchResult = matchDocument { Loader.loadPDF(pdf) }
+
+    /** As [matchPdf], for a PDF in memory; PDFBox reads it without temporary files. */
+    fun matchPdf(pdf: ByteArray): TemplateMatchResult = matchDocument { Loader.loadPDF(pdf) }
 
     override fun close() {
         loaded.values.flatten().forEach { it.close() }
         akaze.close()
     }
 
-    private fun match(pdf: File): TemplateMatchResult {
-        val pages = Loader.loadPDF(pdf).use { document ->
+    private fun matchDocument(open: () -> PDDocument): TemplateMatchResult = try {
+        match(open)
+    } catch (e: Exception) {
+        TemplateMatchResult.Error(e)
+    }
+
+    private fun match(open: () -> PDDocument): TemplateMatchResult {
+        val pages = open().use { document ->
             if (document.numberOfPages > maxPages) return TemplateMatchResult.TooManyPages(document.numberOfPages, maxPages)
 
             pdfToImages(document)

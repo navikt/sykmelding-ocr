@@ -1,10 +1,13 @@
 package org.example.no.nav.tsm.ocr.template.template
 
+import no.nav.tsm.sykmelding.utils.tempDirectory
+import no.nav.tsm.sykmelding.utils.writingToTemp
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import tools.jackson.module.kotlin.readValue
 import java.awt.image.BufferedImage
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
@@ -22,8 +25,50 @@ data class TemplateGroup(val file: File, val manifest: TemplateManifest) {
     val pageFiles: List<File> get() = manifest.pages.map { file.parentFile.resolve(it) }
 }
 
-class TemplateLibrary(val directory: File = File("templates")) {
+/**
+ * The templates in [directory], by default the template sources (the editor runs from the repository root).
+ * Use [fromResources] for the templates packaged with this library.
+ */
+class TemplateLibrary(val directory: File = File("lib/src/main/resources/templates")) {
     private val mapper = jacksonObjectMapper()
+
+    companion object {
+        /**
+         * The templates packaged in this library's resources, for matching. Resources in a jar are not files, so the
+         * files listed in /templates/index.txt (written by the build) are copied once to a folder in java.io.tmpdir,
+         * which must be writable. Read only: changes are made to that copy and lost.
+         */
+        fun fromResources(): TemplateLibrary = TemplateLibrary(resourceCopy)
+
+        private val resourceCopy: File by lazy {
+            val target = tempDirectory("templates")
+            try {
+                val paths = resource("index.txt").bufferedReader().useLines { lines ->
+                    lines.map(String::trim).filter(String::isNotEmpty).toList()
+                }
+                for (path in paths) {
+                    val file = target.resolve(path).normalize()
+                    require(file.startsWith(target) && file != target) { "Invalid path in /templates/index.txt: $path" }
+                    resource(path).use { input ->
+                        writingToTemp("copy the template file $path to $target") {
+                            Files.createDirectories(file.parent)
+                            Files.copy(input, file)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // A partial copy is not reused: the next attempt starts again in a new folder.
+                target.toFile().deleteRecursively()
+                throw e
+            }
+            target.toFile()
+        }
+
+        private fun resource(path: String): InputStream =
+            requireNotNull(TemplateLibrary::class.java.getResourceAsStream("/templates/$path")) {
+                "Missing /templates/$path on the classpath"
+            }
+    }
 
     fun list(): List<TemplateGroup> {
         if (!directory.exists()) return emptyList()

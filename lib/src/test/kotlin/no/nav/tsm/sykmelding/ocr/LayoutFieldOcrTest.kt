@@ -129,8 +129,8 @@ class LayoutFieldOcrTest {
 
     @Test
     fun `reads a short HPR number in a wide cell of the template`() {
-        val image = ImageIO.read(File("../templates/0.2019/page-3/template.png"))
-        val fields = TemplateFiles.read(File("../templates/0.2019/page-3/page-3.json")).felter
+        val image = ImageIO.read(File("src/main/resources/templates/0.2019/page-3/template.png"))
+        val fields = TemplateFiles.read(File("src/main/resources/templates/0.2019/page-3/page-3.json")).felter
         val hpr = fields.single { it.navn == "bekreftelse.hpr" }
         draw(image) {
             color = Color.BLACK
@@ -142,8 +142,8 @@ class LayoutFieldOcrTest {
 
     @Test
     fun `reads a filled-in template page, and detects its ticked checkboxes instead of reading them as text`() {
-        val image = ImageIO.read(File("../templates/03.2019/page-1/template.png"))
-        val fields = TemplateFiles.read(File("../templates/03.2019/page-1/page-1.json")).felter
+        val image = ImageIO.read(File("src/main/resources/templates/03.2019/page-1/template.png"))
+        val fields = TemplateFiles.read(File("src/main/resources/templates/03.2019/page-1/page-1.json")).felter
         fun field(name: String): Felter = fields.single { it.navn == name }
         val values = mapOf(
             "hoveddiagnose.system" to "ICPC-2", "hoveddiagnose.kode" to "L-84", "hoveddiagnose.text" to "Ryggsyndrom",
@@ -169,7 +169,7 @@ class LayoutFieldOcrTest {
     fun `the empty checkboxes of every template page are unchecked`() {
         for (template in listOf("0.2019", "03.2019")) {
             for (page in 1..3) {
-                val folder = File("../templates/$template/page-$page")
+                val folder = File("src/main/resources/templates/$template/page-$page")
                 val fields = TemplateFiles.read(folder.resolve("page-$page.json")).felter
                 val checkboxes = readCheckboxes(ImageIO.read(folder.resolve("template.png")), fields)
                 assertEquals(fields.count { it.type == FieldType.CHECKBOX }, checkboxes.size, "$template page $page")
@@ -181,7 +181,7 @@ class LayoutFieldOcrTest {
     @Test
     fun `the diagnosis code fields of both templates are code fields`() {
         for (template in listOf("0.2019", "03.2019")) {
-            val fields = TemplateFiles.read(File("../templates/$template/page-1/page-1.json")).felter
+            val fields = TemplateFiles.read(File("src/main/resources/templates/$template/page-1/page-1.json")).felter
             for (name in listOf("hoveddiagnose.kode", "bidiagnose.kode")) {
                 assertEquals(FieldType.CODE, fields.single { it.navn == name }.type, "$template $name")
             }

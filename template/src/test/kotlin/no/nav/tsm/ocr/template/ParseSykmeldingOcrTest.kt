@@ -6,10 +6,8 @@ import no.nav.tsm.sykmelding.model.OcrParserAktivitet
 import no.nav.tsm.sykmelding.ocr.Ocr
 import no.nav.tsm.sykmelding.ocr.ParseSykmeldingOcr
 import no.nav.tsm.sykmelding.template.TemplateMatcher
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.assertAll
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -20,12 +18,12 @@ class ParseSykmeldingOcrTest {
 
     @Test
     fun `doOcr maps patient and main diagnosis from the svenskmann PDF`() {
-        val library = TemplateLibrary(File("../templates"))
-        val pdf = File(requireNotNull(javaClass.getResource("/svenskmann.pdf")) {
+        // As production: the PDF in memory, and the templates packaged in lib's resources.
+        val pdf = requireNotNull(javaClass.getResourceAsStream("/svenskmann.pdf")) {
             "Missing test PDF: /svenskmann.pdf"
-        }.toURI())
+        }.use { it.readBytes() }
 
-        TemplateMatcher(library).use { matcher ->
+        TemplateMatcher().use { matcher ->
             val result = assertNotNull(ParseSykmeldingOcr(Ocr(), matcher).doOcr(pdf))
             val pasient = assertNotNull(result.pasient)
             val diagnose = assertNotNull(result.diagnose)

@@ -1,9 +1,23 @@
 # sykmelding-ocr
 Bibliotek for OCR parsing av papirsykmeldinger
 
+## Usage
+
+```kotlin
+val parser = ParseSykmeldingOcr(Ocr(), TemplateMatcher()) // create once: it reads every template
+val sykmelding = parser.doOcr(pdfBytes)                     // the PDF in memory; doOcr(File) also works
+```
+
+The lib needs a writable `java.io.tmpdir` (`/tmp` by default). On first use it copies the templates and the
+OCR model there, since they must be files, and JavaCPP extracts its native libraries (OpenCV, Tesseract) to
+`~/.javacpp/cache`, or to `java.io.tmpdir` when the home folder is not writable. The PDF itself is not written to disk.
+
 ## Template images
 
-The application opens on a **Templates** view listing the templates in `templates/`.
+The application opens on a **Templates** view listing the templates in `lib/src/main/resources/templates`
+(run it from the repository root). They are packaged in the lib jar; `TemplateMatcher()` matches against
+`TemplateLibrary.fromResources()`, a copy of them made from the `templates/index.txt` the build writes,
+since a jar's folders cannot be listed.
 Use **New template** to create a version folder (for example `03.2019`), then
 **Add page** to create and edit each page. Double-click a page to reopen its editor.
 Select a template and use **Import page** to add an existing page JSON instead.

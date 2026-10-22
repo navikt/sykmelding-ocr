@@ -27,8 +27,13 @@ class ParseSykmeldingOcr(
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
-     fun doOcr(pdf: File): OcrParserSykmelding? {
-        val sykmeldingTemplate = matchTemplate(pdf)
+    fun doOcr(pdf: File): OcrParserSykmelding? = parse(templateMatcher.matchPdf(pdf))
+
+    /** As [doOcr], for a PDF in memory, so it need not be saved first. */
+    fun doOcr(pdf: ByteArray): OcrParserSykmelding? = parse(templateMatcher.matchPdf(pdf))
+
+    private fun parse(match: TemplateMatchResult): OcrParserSykmelding? {
+        val sykmeldingTemplate = requireMatch(match)
         if (sykmeldingTemplate !is TemplateMatchResult.Matched) {
             return null
         }
@@ -193,8 +198,7 @@ class ParseSykmeldingOcr(
             ),
         ).filter { !it.fom.isNullOrBlank() && !it.tom.isNullOrBlank() }
 
-    private fun matchTemplate(pdf: File): TemplateMatchResult {
-        val sykmeldingTemplate = templateMatcher.matchPdf(pdf)
+    private fun requireMatch(sykmeldingTemplate: TemplateMatchResult): TemplateMatchResult {
         if (sykmeldingTemplate !is TemplateMatchResult.Matched) {
             throw IllegalArgumentException(
                 "No template matched for the given PDF: $sykmeldingTemplate",

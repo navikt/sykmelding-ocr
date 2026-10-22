@@ -25,7 +25,7 @@ class SplitPanesTest {
     fun `every divider in the bucket views and the comparison view can be dragged both ways`() {
         SwingUtilities.invokeAndWait {
             val views = listOf(
-                "bucket test" to BucketTemplateTestView(settings = null, library = TemplateLibrary(File("../templates")), testFolder = null),
+                "bucket test" to BucketTemplateTestView(settings = null, library = TemplateLibrary(File("../lib/src/main/resources/templates")), testFolder = null),
                 "bucket" to GcpBucketView(folders = SaveFolders(directory), settings = null),
                 "compare" to ImageComparisonView(),
             )
