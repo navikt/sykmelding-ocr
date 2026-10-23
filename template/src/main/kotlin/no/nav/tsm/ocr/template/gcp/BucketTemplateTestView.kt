@@ -10,6 +10,7 @@ import no.nav.tsm.ocr.template.view.splitPane
 import no.nav.tsm.sykmelding.model.CheckboxState
 import no.nav.tsm.sykmelding.ocr.CheckboxReading
 import no.nav.tsm.sykmelding.ocr.FieldSegment
+import no.nav.tsm.sykmelding.ocr.SykmeldingOcrMapping
 import no.nav.tsm.sykmelding.ocr.skipsOcr
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import org.example.no.nav.tsm.ocr.template.template.Felter
@@ -40,6 +41,7 @@ import javax.swing.Box
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
+import javax.swing.JDialog
 import javax.swing.JFileChooser
 import javax.swing.JFrame
 import javax.swing.JLabel
@@ -61,12 +63,14 @@ import javax.swing.SortOrder
 import javax.swing.SpinnerNumberModel
 import javax.swing.SwingUtilities
 import javax.swing.SwingWorker
+import javax.swing.Scrollable
 import javax.swing.Timer
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableRowSorter
+import tools.jackson.module.kotlin.jacksonObjectMapper
 
 class BucketTemplateTestView(
     private val library: TemplateLibrary = TemplateLibrary(),
@@ -179,7 +183,7 @@ class BucketTemplateTestView(
     private val ocrFields = JScrollPane(outcomeText)
     private val ocrFieldsBorder = ocrFields.border
     /** In the test result, below the OCR fields, when the shown PDF has an XML; see [setXmlBesideOcr]. */
-    private val xmlBesideOcr = XmlPanel("XML — what the scanning read, to compare with the OCR")
+    private val xmlBesideOcr = XmlPanel("XML — what the scanning read, to compare with the OCR", ::openXmlComparisonWindow)
     /** The OCR fields above the XML; [ocrFields] is moved into it by [setXmlBesideOcr]. */
     private val fieldsSplit = splitPane(JSplitPane.VERTICAL_SPLIT, ocrFields, xmlBesideOcr, location = 0.5, weight = 0.5)
     /** The OCR fields, alone or with [xmlBesideOcr] in [fieldsSplit]. */
@@ -188,6 +192,33 @@ class BucketTemplateTestView(
     private val tabs = JTabbedPane()
     private val compare = BucketComparePanel({ LibraryPages.load(library).pages })
     private val xml = XmlPanel()
+    private var comparisonXml: XmlContent? = null
+    private var mappedXmlComparison: OcrXmlComparison? = null
+    private var comparisonWindow: JDialog? = null
+    private var finalOcrText = "Test the selected PDF to see the final OCR output."
+    private val comparisonText = JTextArea().apply {
+        isEditable = false
+        font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+    }
+    private val compareXml = JButton("Compare with XML").apply {
+        isEnabled = false
+        toolTipText = "Compare the whole document's mapped production OCR result with the Iron Mountain XML."
+        addActionListener { tabs.selectedIndex = XML_COMPARISON_TAB }
+    }
+    private val printComparison = JButton("Print comparison…").apply {
+        isEnabled = false
+        addActionListener {
+            try {
+                comparisonText.print()
+            } catch (error: java.awt.print.PrinterException) {
+                status.text = "Could not print the comparison: ${error.message}"
+            }
+        }
+    }
+    private val copyComparison = JButton("Copy comparison").apply {
+        isEnabled = false
+        addActionListener { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(comparisonText.text), null) }
+    }
     private val openInCompare = JButton("Open in Compare").apply {
         toolTipText = "Open the selected PDF page and template page in the Compare tab, to apply reference images and read fields."
         isEnabled = false
@@ -266,16 +297,24 @@ class BucketTemplateTestView(
         val left = JScrollPane(table)
         val result = JPanel(BorderLayout(4, 4)).apply {
             add(JPanel(BorderLayout()).apply {
-                add(resultTitle, BorderLayout.CENTER)
-                add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { add(openInCompare) }, BorderLayout.EAST)
+                add(resultTitle, BorderLayout.NORTH)
+                add(JPanel(WrapLayout()).apply { add(compareXml); add(openInCompare) }, BorderLayout.CENTER)
             }, BorderLayout.NORTH)
             add(splitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(outcomeTable), fields, location = 0.22, weight = 0.0), BorderLayout.CENTER)
         }
-        val middle = JPanel(BorderLayout(4, 4)).apply {
+        val middle = object : JPanel(BorderLayout(4, 4)), Scrollable {
+            override fun getPreferredScrollableViewportSize() = Dimension(500, 700)
+            override fun getScrollableTracksViewportWidth() = true
+            override fun getScrollableTracksViewportHeight() = (parent?.height ?: 0) >= preferredSize.height
+            override fun getScrollableUnitIncrement(visibleRect: Rectangle, orientation: Int, direction: Int) = 24
+            override fun getScrollableBlockIncrement(visibleRect: Rectangle, orientation: Int, direction: Int) =
+                (if (orientation == javax.swing.SwingConstants.VERTICAL) visibleRect.height else visibleRect.width).coerceAtLeast(24)
+        }.apply {
+            preferredSize = Dimension(500, 1100)
             add(JPanel(BorderLayout(6, 0)).apply {
                 border = BorderFactory.createEmptyBorder(0, 4, 0, 0)
-                add(shownName, BorderLayout.CENTER)
-                add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { add(download); add(createTemplate) }, BorderLayout.EAST)
+                add(shownName, BorderLayout.NORTH)
+                add(JPanel(WrapLayout()).apply { add(download); add(createTemplate) }, BorderLayout.CENTER)
             }, BorderLayout.NORTH)
             val info = JScrollPane(details).apply { border = BorderFactory.createTitledBorder("Details") }
             add(splitPane(JSplitPane.VERTICAL_SPLIT, info, result, location = 0.26, weight = 0.0), BorderLayout.CENTER)
@@ -290,6 +329,11 @@ class BucketTemplateTestView(
         tabs.addTab("Test result", page)
         tabs.addTab("Compare", compare)
         tabs.addTab("XML", xml)
+        tabs.addTab("OCR vs XML", JPanel(BorderLayout(4, 4)).apply {
+            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply { add(copyComparison); add(printComparison) }, BorderLayout.NORTH)
+            add(JScrollPane(comparisonText), BorderLayout.CENTER)
+        })
+        tabs.setToolTipTextAt(XML_COMPARISON_TAB, "Field-by-field comparison of the mapped OCR result and Iron Mountain XML for the whole document.")
         tabs.setToolTipTextAt(COMPARE_TAB, "A page of the file with a template page, as in the image comparison view: " +
             "apply reference images, apply the configuration and read fields.")
         tabs.setToolTipTextAt(RESULT_TAB, "The page of the file aligned to the template page chosen in the middle, " +
@@ -297,7 +341,11 @@ class BucketTemplateTestView(
         tabs.setToolTipTextAt(XML_TAB, "The XML stored with the PDF, with what the scanning read from the form, " +
             "also shown below the OCR fields.")
         tabs.addChangeListener { if (tabs.selectedIndex == COMPARE_TAB) compareShownPage() }
-        val right = splitPane(JSplitPane.HORIZONTAL_SPLIT, middle, tabs, location = 0.46, weight = 0.4)
+        val middleScroll = JScrollPane(middle).apply {
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBar.unitIncrement = 24
+        }
+        val right = splitPane(JSplitPane.HORIZONTAL_SPLIT, middleScroll, tabs, location = 0.46, weight = 0.4)
         add(splitPane(JSplitPane.HORIZONTAL_SPLIT, left, right, location = 0.36, weight = 0.35), BorderLayout.CENTER)
         add(status, BorderLayout.SOUTH)
 
@@ -835,6 +883,91 @@ class BucketTemplateTestView(
         }
         outcomes.reset(result?.outcomes.orEmpty())
         if (outcomes.rowCount > 0) outcomeTable.setRowSelectionInterval(0, 0) else showOutcome(null)
+        refreshXmlComparison()
+    }
+
+    private fun refreshXmlComparison() {
+        mappedXmlComparison = null
+        val result = shownResult
+        val content = comparisonXml
+        val document = content?.document
+        val mapped = try {
+            if (result?.status == PdfStatus.MATCHED && result.reads != null) {
+                SykmeldingOcrMapping.map(result.outcomes.first().template.group, result.reads)
+            } else null
+        } catch (error: Exception) {
+            finalOcrText = "Could not map the final OCR output: ${error.message ?: error}"
+            xmlBesideOcr.showFinalOcr(finalOcrText)
+            comparisonText.text = finalOcrText
+            comparisonText.caretPosition = 0
+            compareXml.isEnabled = false
+            printComparison.isEnabled = false
+            copyComparison.isEnabled = false
+            xmlBesideOcr.setComparisonEnabled(content != null)
+            return
+        }
+        finalOcrText = when {
+            shown?.isPdf != true -> "Select a PDF to see its final OCR output."
+            result?.status != PdfStatus.MATCHED -> "Test the selected PDF first. A matched document is required for final OCR output."
+            result.reads == null -> result.ocrError ?: "The document's OCR fields have not been read."
+            mapped == null -> "No production mapping is available for template ${result.outcomes.firstOrNull()?.template?.group}."
+            else -> jacksonObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(mapped)
+        }
+        xmlBesideOcr.showFinalOcr(finalOcrText)
+        var ready = false
+        comparisonText.text = when {
+            shown?.isPdf != true -> "Select a PDF to compare its mapped OCR result with the Iron Mountain XML."
+            result?.status != PdfStatus.MATCHED -> "Test the selected PDF first. A matched document is required for comparison."
+            result.reads == null -> result.ocrError ?: "The document's OCR fields have not been read."
+            content == null -> "No XML is loaded for this PDF. See the XML tab for availability or loading errors."
+            document == null -> content.fields
+            else -> try {
+                if (mapped == null) finalOcrText
+                else {
+                    val comparison = compareMappedOcrWithXml(mapped, document)
+                    val report = "${shown?.fileName}\n\n" + comparison.describe()
+                    mappedXmlComparison = comparison
+                    ready = true
+                    report
+                }
+            } catch (error: Exception) {
+                "Could not compare the mapped OCR result with the XML: ${error.message ?: error}"
+            }
+        }
+        comparisonText.caretPosition = 0
+        compareXml.isEnabled = ready
+        printComparison.isEnabled = ready
+        copyComparison.isEnabled = ready
+        xmlBesideOcr.setComparisonEnabled(shown?.isPdf == true && content != null)
+    }
+
+    private fun openXmlComparisonWindow() {
+        val comparison = mappedXmlComparison
+        comparisonWindow?.dispose()
+        comparisonWindow = JDialog(
+            SwingUtilities.getWindowAncestor(this),
+            "${shown?.fileName} - Mapped OCR vs Iron Mountain XML",
+            java.awt.Dialog.ModalityType.MODELESS,
+        ).apply {
+            defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
+            contentPane = if (comparison != null) OcrXmlComparisonPanel(comparison) else JPanel(BorderLayout()).apply {
+                fun pane(title: String, text: String) = JScrollPane(JTextArea(text).apply {
+                    isEditable = false
+                    font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+                    caretPosition = 0
+                }).apply { border = BorderFactory.createTitledBorder(title) }
+                add(splitPane(JSplitPane.HORIZONTAL_SPLIT,
+                    pane("Final OCR output - unavailable", finalOcrText),
+                    pane("Iron Mountain XML", comparisonXml?.fields ?: "No XML is loaded."),
+                    location = 0.5, weight = 0.5))
+            }
+            val screen = graphicsConfiguration.bounds
+            val insets = Toolkit.getDefaultToolkit().getScreenInsets(graphicsConfiguration)
+            setSize(minOf(1200, screen.width - insets.left - insets.right),
+                minOf(750, screen.height - insets.top - insets.bottom))
+            setLocationRelativeTo(this@BucketTemplateTestView)
+            isVisible = true
+        }
     }
 
     private fun selectedOutcome(): TemplateOutcome? = outcomeTable.selectedRow.takeIf { it >= 0 }?.let { outcomes.rows[it] }
@@ -1025,6 +1158,8 @@ class BucketTemplateTestView(
                         val (found, content) = result
                         xml.show(found.fileName, current.location(found.name), content)
                         xmlBesideOcr.show(found.fileName, current.location(found.name), content)
+                        comparisonXml = content
+                        refreshXmlComparison()
                         setXmlBesideOcr(true)
                         tabs.setTitleAt(XML_TAB, "XML ✓")
                     }
@@ -1040,6 +1175,8 @@ class BucketTemplateTestView(
 
     /** [text] in the XML tab, and below the OCR fields when [besideOcr]; otherwise the OCR fields are alone. */
     private fun showXmlMessage(text: String, heading: String, besideOcr: Boolean) {
+        comparisonXml = null
+        refreshXmlComparison()
         xml.showMessage(text, heading)
         xmlBesideOcr.showMessage(text, heading)
         setXmlBesideOcr(besideOcr)
@@ -1308,6 +1445,7 @@ class BucketTemplateTestView(
 
     /** Stops listing and tests; tests in progress finish in the background and their results are dropped. */
     fun close() {
+        comparisonWindow?.dispose()
         closed = true
         stopRequested = true
         previewDelay.stop()
@@ -1469,6 +1607,7 @@ class BucketTemplateTestView(
         private const val RESULT_TAB = 1
         private const val COMPARE_TAB = 2
         private const val XML_TAB = 3
+        private const val XML_COMPARISON_TAB = 4
 
         /**
          * Opens the view in its own window and lists the last used bucket. [onTemplateCreated] gets the page files

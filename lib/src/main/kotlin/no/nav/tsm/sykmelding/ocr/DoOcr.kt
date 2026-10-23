@@ -39,35 +39,50 @@ class ParseSykmeldingOcr(
         }
         val pages = readPages(sykmeldingTemplate, sykmeldingTemplate.template.manifest.navn)
 
-        val valuesByName = byFieldName(pages.map { page ->
-            page.values.filterKeys { !it.type.skipsOcr }.mapValues { (_, text) -> text.text }
-        })
         val checkboxReadings = byFieldName(pages.map { it.checkboxes })
         checkboxReadings.filterValues { it.state == CheckboxState.UNCERTAIN }.takeIf { it.isNotEmpty() }?.let { uncertain ->
             logger.warn("Uncertain checkboxes in template ${sykmeldingTemplate.template.manifest.navn}: " +
                 uncertain.entries.joinToString { (name, reading) -> "$name (${reading.coverageText})" })
         }
-        val checkboxesByName = checkboxReadings.mapValues { it.value.state }
-
-        if(sykmeldingTemplate.template.manifest.navn == "0.2019" || sykmeldingTemplate.template.manifest.navn == "03.2019") {
-            val sykmelding = threePage2019TemplateMapToOcrParsedSykmelding(valuesByName, checkboxesByName)
-            return sykmelding
-        }
-
-        return null
+        return SykmeldingOcrMapping.map(sykmeldingTemplate.template.manifest.navn, pages)
     }
 
-    private fun <T> byFieldName(pages: List<Map<Felter, T>>): Map<String, T> = buildMap {
-        pages.forEach { fieldsOnPage ->
-            fieldsOnPage
-                .filterKeys { it.navn !in EXCLUDED_FIELDS }
-                .forEach { (field, value) ->
-                    require(!containsKey(field.navn)) {
-                        "Duplicate field name: ${field.navn}"
-                    }
-                    put(field.navn, value)
-                }
+    internal fun mapThreePage2019Activities(
+        valuesByName: Map<String, String?>,
+        checkboxes: Map<String, CheckboxState>,
+    ): List<OcrParserAktivitet> = SykmeldingOcrMapping.mapThreePage2019Activities(valuesByName, checkboxes)
+
+    private fun requireMatch(sykmeldingTemplate: TemplateMatchResult): TemplateMatchResult {
+        if (sykmeldingTemplate !is TemplateMatchResult.Matched) {
+            throw IllegalArgumentException(
+                "No template matched for the given PDF: $sykmeldingTemplate",
+                (sykmeldingTemplate as? TemplateMatchResult.Error)?.exception,
+            )
         }
+        return sykmeldingTemplate
+    }
+
+    private fun readPages(
+        sykmeldingTemplate: TemplateMatchResult.Matched,
+        templateVersion: String
+    ): List<PageRead> = sykmeldingTemplate.templateMatch.map { (template, image) ->
+        logger.info("template: $templateVersion, page: ${template.navn}")
+        when (templateVersion) {
+            "03.2019", "0.2019" -> ocr.readPage(image, template.felter)
+            else -> throw IllegalArgumentException("No parser available for template: $templateVersion")
+        }
+    }
+}
+
+/** Maps already-read pages exactly as production does, without matching or running OCR again. */
+object SykmeldingOcrMapping {
+    fun map(templateVersion: String, pages: List<PageRead>): OcrParserSykmelding? {
+        if (templateVersion != "0.2019" && templateVersion != "03.2019") return null
+        val values = byFieldName(pages.map { page ->
+            page.values.filterKeys { !it.type.skipsOcr }.mapValues { (_, text) -> text.text }
+        })
+        val checkboxes = byFieldName(pages.map { page -> page.checkboxes.mapValues { it.value.state } })
+        return threePage2019TemplateMapToOcrParsedSykmelding(values, checkboxes)
     }
 
     private fun threePage2019TemplateMapToOcrParsedSykmelding(
@@ -77,7 +92,7 @@ class ParseSykmeldingOcr(
         val pasient = OcrParserPasient(
             etternavn = valuesByName["pasient.etternavn"],
             fornavn = valuesByName["pasient.fornavn"],
-            fnr = valuesByName["pasient.fnr"],
+            fnr = valuesByName["pasient.fnr"]?.filter { it in '0'..'9' },
             telefon = valuesByName["pasient.telefon"],
             fastlege = valuesByName["pasient.fastlege"],
             navKontor = valuesByName["pasient.navkontor"],
@@ -198,35 +213,17 @@ class ParseSykmeldingOcr(
             ),
         ).filter { !it.fom.isNullOrBlank() && !it.tom.isNullOrBlank() }
 
-    private fun requireMatch(sykmeldingTemplate: TemplateMatchResult): TemplateMatchResult {
-        if (sykmeldingTemplate !is TemplateMatchResult.Matched) {
-            throw IllegalArgumentException(
-                "No template matched for the given PDF: $sykmeldingTemplate",
-                (sykmeldingTemplate as? TemplateMatchResult.Error)?.exception,
-            )
+}
+
+private val EXCLUDED_FIELDS = setOf("tittel.etternavn", "tittel.fornavn", "tittel.fnr")
+
+private fun <T> byFieldName(pages: List<Map<Felter, T>>): Map<String, T> = buildMap {
+    pages.forEach { fieldsOnPage ->
+        fieldsOnPage.filterKeys { it.navn !in EXCLUDED_FIELDS }.forEach { (field, value) ->
+            require(!containsKey(field.navn)) { "Duplicate field name: ${field.navn}" }
+            put(field.navn, value)
         }
-        return sykmeldingTemplate
-    }
-
-
-    private fun readPages(
-        sykmeldingTemplate: TemplateMatchResult.Matched,
-        templateVersion: String
-    ): List<PageRead> = sykmeldingTemplate.templateMatch.map { (template, image) ->
-        logger.info("template: $templateVersion, page: ${template.navn}")
-        when (templateVersion) {
-            "03.2019", "0.2019" -> {
-                ocr.readPage(image, template.felter)
-            }
-
-            else -> {
-                throw IllegalArgumentException("No parser available for template: $templateVersion")
-            }
-        }
-    }
-
-    private companion object {
-        val EXCLUDED_FIELDS = setOf("tittel.etternavn", "tittel.fornavn", "tittel.fnr")
     }
 }
+
 private fun Map<String, CheckboxState>.state(name: String): CheckboxState = this[name] ?: CheckboxState.UNCERTAIN

@@ -12,6 +12,7 @@ repositories {
 }
 
 dependencies {
+    implementation(libs.jackson.module.kotlin)
     implementation(libs.bytedeco.javacv)
     implementation(libs.pdfbox)
     implementation(libs.google.cloud.storage)

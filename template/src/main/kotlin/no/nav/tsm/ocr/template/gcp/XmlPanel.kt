@@ -3,7 +3,9 @@ package no.nav.tsm.ocr.template.gcp
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Font
+import java.awt.FlowLayout
 import javax.swing.BorderFactory
+import javax.swing.JButton
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JScrollPane
@@ -11,14 +13,23 @@ import javax.swing.JTabbedPane
 import javax.swing.JTextArea
 import javax.swing.SwingConstants
 
-class XmlPanel(title: String = "XML") : JPanel(BorderLayout(4, 4)) {
+class XmlPanel(title: String = "XML", onCompare: (() -> Unit)? = null) : JPanel(BorderLayout(4, 4)) {
+    private val sideBySide = onCompare?.let { action ->
+        JButton("Open side by side").apply {
+            isEnabled = false
+            toolTipText = "Open the whole document's mapped OCR and Iron Mountain XML side by side in a separate window."
+            addActionListener { action() }
+        }
+    }
     private val heading = JLabel(" ").apply { font = font.deriveFont(Font.BOLD) }
     private val summary = JLabel(" ")
     private val parsed = textArea()
     private val raw = textArea()
+    private val finalOcr = textArea()
     private val views = JTabbedPane().apply {
-        addTab("Parsed", JScrollPane(parsed))
+        addTab("Parsed XML", JScrollPane(parsed))
         addTab("Raw XML", JScrollPane(raw))
+        if (onCompare != null) addTab("Final OCR output", JScrollPane(finalOcr))
         setToolTipTextAt(PARSED, "The fields of the XML as written. ⚠ marks a value production's papirsykemelding classes " +
             "read differently, or not at all.")
     }
@@ -31,10 +42,22 @@ class XmlPanel(title: String = "XML") : JPanel(BorderLayout(4, 4)) {
     init {
         border = BorderFactory.createTitledBorder(title)
         add(JPanel(BorderLayout(0, 2)).apply { add(heading, BorderLayout.NORTH); add(summary, BorderLayout.SOUTH) }, BorderLayout.NORTH)
+        sideBySide?.let { button ->
+            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply { add(button) }, BorderLayout.SOUTH)
+        }
         content.add(views, VIEWS)
         content.add(message, MESSAGE)
         add(content, BorderLayout.CENTER)
         showMessage("Select a PDF to see its XML.")
+    }
+
+    internal fun setComparisonEnabled(enabled: Boolean) {
+        sideBySide?.isEnabled = enabled
+    }
+
+    internal fun showFinalOcr(text: String) {
+        finalOcr.text = text
+        finalOcr.caretPosition = 0
     }
 
     fun showMessage(text: String, heading: String = " ") {
@@ -78,6 +101,9 @@ class XmlPanel(title: String = "XML") : JPanel(BorderLayout(4, 4)) {
     }
 }
 class XmlContent(val fields: String, val raw: String, val summary: String, val parsed: Boolean) {
+    internal var document: PapirsykmeldingXml? = null
+        private set
+
     companion object {
         /** Larger files are shown in part, unread; a scanned form's XML is a few kB. */
         private const val MAX_BYTES = 2 * 1024 * 1024
@@ -99,7 +125,7 @@ class XmlContent(val fields: String, val raw: String, val summary: String, val p
             val summary = "$fields field${plural(fields)} as written in the XML; " +
                 (if (differ == 0) "production reads them as written." else "⚠ $differ that production reads differently or not at all.") +
                 if (xml.problems.isEmpty()) "" else " ${xml.problems.size} other problem${plural(xml.problems.size)}."
-            return XmlContent(xml.describe(), raw, summary, parsed = true)
+            return XmlContent(xml.describe(), raw, summary, parsed = true).apply { document = xml }
         }
     }
 }
