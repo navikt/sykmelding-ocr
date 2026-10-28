@@ -1,43 +1,38 @@
 package no.nav.tsm.sykmelding.template
 
 import no.nav.tsm.sykmelding.utils.grayscale
+import no.nav.tsm.sykmelding.utils.loadOpenCv
 import no.nav.tsm.sykmelding.utils.toBufferedImage
+import no.nav.tsm.sykmelding.utils.use
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.pdmodel.PDDocument
-import org.bytedeco.javacpp.PointerScope
-import org.bytedeco.javacpp.indexer.FloatIndexer
-import org.bytedeco.opencv.global.opencv_calib3d.findHomography
-import org.bytedeco.opencv.global.opencv_core.BORDER_CONSTANT
-import org.bytedeco.opencv.global.opencv_core.CV_32FC2
-import org.bytedeco.opencv.global.opencv_core.bitwise_and
-import org.bytedeco.opencv.global.opencv_core.bitwise_or
-import org.bytedeco.opencv.global.opencv_core.countNonZero
-import org.bytedeco.opencv.global.opencv_imgproc.INTER_AREA
-import org.bytedeco.opencv.global.opencv_imgproc.INTER_LINEAR
-import org.bytedeco.opencv.global.opencv_imgproc.MORPH_OPEN
-import org.bytedeco.opencv.global.opencv_imgproc.MORPH_RECT
-import org.bytedeco.opencv.global.opencv_imgproc.THRESH_BINARY_INV
-import org.bytedeco.opencv.global.opencv_imgproc.THRESH_OTSU
-import org.bytedeco.opencv.global.opencv_imgproc.dilate
-import org.bytedeco.opencv.global.opencv_imgproc.getStructuringElement
-import org.bytedeco.opencv.global.opencv_imgproc.morphologyEx
-import org.bytedeco.opencv.global.opencv_imgproc.resize
-import org.bytedeco.opencv.global.opencv_imgproc.threshold
-import org.bytedeco.opencv.global.opencv_imgproc.warpPerspective
-import org.bytedeco.opencv.global.opencv_xfeatures2d.matchGMS
-import org.bytedeco.opencv.opencv_core.DMatch
-import org.bytedeco.opencv.opencv_core.DMatchVector
-import org.bytedeco.opencv.opencv_core.DMatchVectorVector
-import org.bytedeco.opencv.opencv_core.KeyPointVector
-import org.bytedeco.opencv.opencv_core.Mat
-import org.bytedeco.opencv.opencv_core.Point2f
-import org.bytedeco.opencv.opencv_core.Scalar
-import org.bytedeco.opencv.opencv_core.Size
-import org.bytedeco.opencv.opencv_features2d.BFMatcher
-import org.example.no.nav.tsm.ocr.template.template.PdfTemplateImages
-import org.example.no.nav.tsm.ocr.template.template.Template
-import org.example.no.nav.tsm.ocr.template.template.TemplateGroup
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
+import org.opencv.core.Core.BORDER_CONSTANT
+import org.opencv.core.Core.bitwise_and
+import org.opencv.core.Core.bitwise_or
+import org.opencv.core.Core.countNonZero
+import org.opencv.core.DMatch
+import org.opencv.core.KeyPoint
+import org.opencv.core.Mat
+import org.opencv.core.MatOfDMatch
+import org.opencv.core.MatOfKeyPoint
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
+import org.opencv.core.Scalar
+import org.opencv.core.Size
+import org.opencv.features.BFMatcher
+import org.opencv.geometry.Geometry.findHomography
+import org.opencv.imgproc.Imgproc.INTER_AREA
+import org.opencv.imgproc.Imgproc.INTER_LINEAR
+import org.opencv.imgproc.Imgproc.MORPH_OPEN
+import org.opencv.imgproc.Imgproc.MORPH_RECT
+import org.opencv.imgproc.Imgproc.THRESH_BINARY_INV
+import org.opencv.imgproc.Imgproc.THRESH_OTSU
+import org.opencv.imgproc.Imgproc.dilate
+import org.opencv.imgproc.Imgproc.getStructuringElement
+import org.opencv.imgproc.Imgproc.morphologyEx
+import org.opencv.imgproc.Imgproc.resize
+import org.opencv.imgproc.Imgproc.threshold
+import org.opencv.imgproc.Imgproc.warpPerspective
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import tools.jackson.module.kotlin.readValue
 import java.awt.image.BufferedImage
@@ -62,12 +57,12 @@ class LoadedTemplate(
     val width: Int,
     val height: Int,
     /** In template image pixels (400 DPI), though found at [TemplateMatcher.featureDpi] with its methods' detector. */
-    val keypoints: KeyPointVector,
+    val keypoints: List<KeyPoint>,
     val descriptors: Mat,
     val lines: Mat,
 ) : AutoCloseable {
     override fun close() {
-        keypoints.close(); descriptors.close(); lines.close()
+        descriptors.release(); lines.release()
     }
 }
 
@@ -101,6 +96,7 @@ class TemplateMatcher(
         require(featureDpi <= renderDpi) { "featureDpi ($featureDpi) can be no more than renderDpi ($renderDpi)" }
         require(featureDpi <= PdfTemplateImages.DPI) { "featureDpi ($featureDpi) can be no more than the templates' ${PdfTemplateImages.DPI} DPI" }
         require(tolerance == null || (tolerance > 0 && tolerance.isFinite())) { "tolerance must be positive: $tolerance" }
+        loadOpenCv()
     }
 
     /**
@@ -155,68 +151,59 @@ class TemplateMatcher(
     }
 
     /** The PDF [page] aligned to [template] (gray, template size) if it is the same form page; null if not. */
-    private fun matchesPage(page: PreparedPage, template: LoadedTemplate): BufferedImage? = PointerScope().use {
+    private fun matchesPage(page: PreparedPage, template: LoadedTemplate): BufferedImage? {
         if (page.descriptors.empty() || template.descriptors.empty()) return null
 
         // PROSAC and RHO try the closest matches first, so they get them sorted; the others as they come, as before.
-        val matches = goodMatches(page, template).let { found -> if (methods.homography.sortsMatches) found.sortedBy { it.distance() } else found }
+        val matches = goodMatches(page, template).let { found -> if (methods.homography.sortsMatches) found.sortedBy { it.distance } else found }
         if (matches.size < MIN_MATCHES) return null
 
-        val from = pointMat(matches.map { page.keypoints.get(it.trainIdx().toLong()).pt() })
-        val to = pointMat(matches.map { template.keypoints.get(it.queryIdx().toLong()).pt() })
-        val inlierMask = Mat()
-        val homography = findHomography(from, to, methods.homography.flag, tolerance, inlierMask, 2000, 0.99)
-        if (homography.empty()) return null
-        val inliers = countNonZero(inlierMask)
-        if (inliers < MIN_INLIERS || inliers < matches.size * MIN_AGREEMENT) return null
-
-        val aligned = Mat()
-        warpPerspective(page.gray, aligned, homography, Size(template.width, template.height), INTER_LINEAR, BORDER_CONSTANT, Scalar(255.0))
-        // Copied into Java memory here, before the scope frees the Mat.
-        if (lineFit(template.lines, aligned) >= MIN_LINE_FIT) toBufferedImage(aligned) else null
+        val (homography, inliers) = Mat().use { inlierMask ->
+            val found = pointMat(matches.map { page.keypoints[it.trainIdx].pt }).use { from ->
+                pointMat(matches.map { template.keypoints[it.queryIdx].pt }).use { to ->
+                    findHomography(from, to, methods.homography.flag, tolerance, inlierMask, 2000, 0.99)
+                }
+            }
+            found to if (found.empty()) 0 else countNonZero(inlierMask)
+        }
+        return homography.use {
+            if (homography.empty() || inliers < MIN_INLIERS || inliers < matches.size * MIN_AGREEMENT) return null
+            Mat().use { aligned ->
+                warpPerspective(page.gray, aligned, homography, Size(template.width.toDouble(), template.height.toDouble()),
+                    INTER_LINEAR, BORDER_CONSTANT, Scalar(255.0))
+                // Copied into Java memory here, before the Mat is freed.
+                if (lineFit(template.lines, aligned) >= MIN_LINE_FIT) toBufferedImage(aligned) else null
+            }
+        }
     }
 
-    /**
-     * The matches of [template]'s descriptors (query) to [page]'s (train) that [methods]' filter keeps. Called in the
-     * caller's pointer scope, which frees what is made here.
-     */
+    /** The matches of [template]'s descriptors (query) to [page]'s (train) that [methods]' filter keeps. */
     private fun goodMatches(page: PreparedPage, template: LoadedTemplate): List<DMatch> {
         val norm = methods.detector.norm
         return when (methods.filter) {
             // Keep a match only when it is clearly closer than the second best, which drops the ambiguous ones that
             // repeated letters and boxes give.
             MatchFilter.RATIO_TEST -> {
-                val candidates = DMatchVectorVector()
+                val candidates = mutableListOf<MatOfDMatch>()
                 BFMatcher(norm, false).knnMatch(template.descriptors, page.descriptors, candidates, 2)
-                (0 until candidates.size()).map { candidates.get(it) }
-                    .filter { it.size() == 2L && it.get(0).distance() < RATIO * it.get(1).distance() }
-                    .map { it.get(0) }
+                candidates.map { pair -> pair.use { it.toArray() } }
+                    .filter { it.size == 2 && it[0].distance < RATIO * it[1].distance }
+                    .map { it[0] }
             }
-            MatchFilter.CROSS_CHECK -> DMatchVector().also { BFMatcher(norm, true).match(template.descriptors, page.descriptors, it) }.toList()
-            MatchFilter.GMS -> {
-                val nearest = DMatchVector()
-                BFMatcher(norm, false).match(template.descriptors, page.descriptors, nearest)
-                val consistent = DMatchVector()
-                matchGMS(Size(template.width, template.height), Size(page.gray.cols(), page.gray.rows()),
-                    template.keypoints, page.keypoints, nearest, consistent, true, false, GMS_THRESHOLD)
-                consistent.toList()
-            }
+            MatchFilter.CROSS_CHECK -> MatOfDMatch().use { BFMatcher(norm, true).match(template.descriptors, page.descriptors, it); it.toList() }
         }
     }
 
-    private fun DMatchVector.toList(): List<DMatch> = (0 until size()).map { get(it) }
-
-    private class PreparedPage(val gray: Mat, val keypoints: KeyPointVector, val descriptors: Mat) : AutoCloseable {
+    private class PreparedPage(val gray: Mat, val keypoints: List<KeyPoint>, val descriptors: Mat) : AutoCloseable {
         override fun close() {
-            gray.close(); keypoints.close(); descriptors.close()
+            gray.release(); descriptors.release()
         }
     }
 
     private fun prepare(image: BufferedImage): PreparedPage {
         val gray = grayscale(image)
-        val keypoints = KeyPointVector()
         val descriptors = Mat()
-        detectFeatures(gray, renderDpi, keypoints, descriptors)
+        val keypoints = detectFeatures(gray, renderDpi, descriptors)
         return PreparedPage(gray, keypoints, descriptors)
     }
 
@@ -224,50 +211,41 @@ class TemplateMatcher(
         val template = objectMapper.readValue<Template>(file.readText())
         val folder = File(file.parent)
         val image = ImageIO.read(folder.resolve(template.templateBilde))
-        val keypoints = KeyPointVector()
         val descriptors = Mat()
-        val lines = grayscale(image).use { gray ->
-            detectFeatures(gray, PdfTemplateImages.DPI, keypoints, descriptors)
-            formLines(gray)
+        return grayscale(image).use { gray ->
+            val keypoints = detectFeatures(gray, PdfTemplateImages.DPI, descriptors)
+            LoadedTemplate(template, image.width, image.height, keypoints, descriptors, formLines(gray))
         }
-        return LoadedTemplate(template, image.width, image.height, keypoints, descriptors, lines)
     }
 
     /**
-     * [methods]' keypoints [keypoints] and [descriptors] of [gray] (at [dpi]), found at [featureDpi] and given in
-     * [gray]'s pixels. A form's lines and print are plain at that size; at 400 DPI SIFT, which doubles the image
-     * first, would take many times the time and gigabytes of memory per page. A detector of its own for each call, as
-     * pages are prepared on several threads at once.
+     * [methods]' keypoints of [gray] (at [dpi]), with their [descriptors], found at [featureDpi] and given in [gray]'s
+     * pixels. A form's lines and print are plain at that size; at 400 DPI SIFT, which doubles the image first, would
+     * take many times the time and gigabytes of memory per page. A detector of its own for each call, as pages are
+     * prepared on several threads at once.
      */
-    private fun detectFeatures(gray: Mat, dpi: Int, keypoints: KeyPointVector, descriptors: Mat) {
+    private fun detectFeatures(gray: Mat, dpi: Int, descriptors: Mat): List<KeyPoint> {
         val scale = featureDpi.toDouble() / dpi
-        if (scale == 1.0) return detect(gray, keypoints, descriptors)
-        Mat().use { small ->
+        if (scale == 1.0) return detect(gray, descriptors)
+        val keypoints = Mat().use { small ->
             resize(gray, small, Size(), scale, scale, INTER_AREA)
-            detect(small, keypoints, descriptors)
+            detect(small, descriptors)
         }
         // Pixel centres: pixel i of the small image covers pixels i/scale .. (i+1)/scale of the page.
-        for (i in 0 until keypoints.size()) {
-            val keypoint = keypoints.get(i)
-            val pt = keypoint.pt() // the keypoint's own point, changed in place
-            pt.x(((pt.x() + 0.5) / scale - 0.5).toFloat())
-            pt.y(((pt.y() + 0.5) / scale - 0.5).toFloat())
-            keypoint.size((keypoint.size() / scale).toFloat())
+        for (keypoint in keypoints) {
+            keypoint.pt.x = (keypoint.pt.x + 0.5) / scale - 0.5
+            keypoint.pt.y = (keypoint.pt.y + 0.5) / scale - 0.5
+            keypoint.size = (keypoint.size / scale).toFloat()
         }
+        return keypoints
     }
 
-    private fun detect(image: Mat, keypoints: KeyPointVector, descriptors: Mat) = methods.detector.create().use { detector ->
-        Mat().use { mask -> detector.detectAndCompute(image, mask, keypoints, descriptors) }
+    private fun detect(image: Mat, descriptors: Mat): List<KeyPoint> = MatOfKeyPoint().use { keypoints ->
+        Mat().use { mask -> methods.detector.create().detectAndCompute(image, mask, keypoints, descriptors) }
+        keypoints.toList()
     }
 
-    private fun pointMat(points: List<Point2f>): Mat = Mat(points.size, 1, CV_32FC2).apply {
-        createIndexer<FloatIndexer>().use { indexer ->
-            points.forEachIndexed { i, p ->
-                indexer.put(i.toLong(), 0, 0, p.x())
-                indexer.put(i.toLong(), 0, 1, p.y())
-            }
-        }
-    }
+    private fun pointMat(points: List<Point>): MatOfPoint2f = MatOfPoint2f(*points.toTypedArray())
 
     private fun pdfToImages(document: PDDocument): List<BufferedImage> =
         (1..document.numberOfPages).map { page -> PdfTemplateImages.render(document, page, renderDpi) }
@@ -278,8 +256,6 @@ class TemplateMatcher(
         const val DEFAULT_FEATURE_DPI = 100
         /** Lowe's ratio: the best match must be closer than this share of the second best. */
         private const val RATIO = 0.75f
-        /** GMS's threshold factor: higher keeps fewer matches. */
-        private const val GMS_THRESHOLD = 6.0
         private const val MIN_MATCHES = 8
         private const val MIN_INLIERS = 8
         private const val MIN_AGREEMENT = 0.4
@@ -306,26 +282,26 @@ private const val LINE_TOLERANCE = 6
 internal fun lineFit(templateLines: Mat, alignedGray: Mat): Double {
     val total = countNonZero(templateLines)
     if (total == 0) return 1.0
-    formLines(alignedGray).use { page ->
+    return formLines(alignedGray).use { page ->
         Mat().use { near ->
-            getStructuringElement(MORPH_RECT, Size(2 * LINE_TOLERANCE + 1, 2 * LINE_TOLERANCE + 1)).use { dilate(page, near, it) }
+            getStructuringElement(MORPH_RECT, Size(2.0 * LINE_TOLERANCE + 1, 2.0 * LINE_TOLERANCE + 1)).use { dilate(page, near, it) }
             Mat().use { both ->
                 bitwise_and(templateLines, near, both)
-                return countNonZero(both).toDouble() / total
+                countNonZero(both).toDouble() / total
             }
         }
     }
 }
 
 internal fun formLines(gray: Mat): Mat {
-    val length = maxOf(40, minOf(gray.cols(), gray.rows()) / 40)
-    Mat().use { ink ->
+    val length = maxOf(40, minOf(gray.cols(), gray.rows()) / 40).toDouble()
+    return Mat().use { ink ->
         threshold(gray, ink, 0.0, 255.0, THRESH_BINARY_INV or THRESH_OTSU)
         Mat().use { horizontal ->
             Mat().use { vertical ->
-                getStructuringElement(MORPH_RECT, Size(length, 1)).use { morphologyEx(ink, horizontal, MORPH_OPEN, it) }
-                getStructuringElement(MORPH_RECT, Size(1, length)).use { morphologyEx(ink, vertical, MORPH_OPEN, it) }
-                return Mat().also { bitwise_or(horizontal, vertical, it) }
+                getStructuringElement(MORPH_RECT, Size(length, 1.0)).use { morphologyEx(ink, horizontal, MORPH_OPEN, it) }
+                getStructuringElement(MORPH_RECT, Size(1.0, length)).use { morphologyEx(ink, vertical, MORPH_OPEN, it) }
+                Mat().also { bitwise_or(horizontal, vertical, it) }
             }
         }
     }

@@ -1,9 +1,10 @@
 package no.nav.tsm.sykmelding.utils
 
-import org.bytedeco.opencv.global.opencv_imgproc
-import org.bytedeco.opencv.opencv_core.Mat
-import org.bytedeco.opencv.opencv_core.MatVector
-import org.bytedeco.opencv.opencv_core.Size
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Size
+import org.opencv.geometry.Geometry
+import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 
 /** A rule's centerline and its local extent, in original image pixels. */
@@ -46,27 +47,23 @@ fun findGridSnapLines(grid: Mat, minimumLength: Int): List<GridSnapLine> {
     val length = maxOf(3, minimumLength) or 1
     return listOf(true, false).flatMap { horizontal ->
         Mat().use { rules ->
-            Size(if (horizontal) length else 1, if (horizontal) 1 else length).use { size ->
-                opencv_imgproc.getStructuringElement(opencv_imgproc.MORPH_RECT, size).use { kernel ->
-                    opencv_imgproc.morphologyEx(grid, rules, opencv_imgproc.MORPH_OPEN, kernel)
-                }
+            val size = Size(if (horizontal) length.toDouble() else 1.0, if (horizontal) 1.0 else length.toDouble())
+            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size).use { kernel ->
+                Imgproc.morphologyEx(grid, rules, Imgproc.MORPH_OPEN, kernel)
             }
-            MatVector().use { contours ->
-                Mat().use { hierarchy ->
-                    opencv_imgproc.findContours(rules, contours, hierarchy,
-                        opencv_imgproc.RETR_EXTERNAL, opencv_imgproc.CHAIN_APPROX_SIMPLE)
-                }
-                (0 until contours.size()).mapNotNull { index ->
-                    opencv_imgproc.boundingRect(contours.get(index)).use { box ->
-                        val extent = if (horizontal) box.width() else box.height()
-                        val thickness = if (horizontal) box.height() else box.width()
-                        if (extent < length || thickness >= length) null
-                        else {
-                            val start = if (horizontal) box.x() else box.y()
-                            val coordinate = if (horizontal) box.y() else box.x()
-                            GridSnapLine(horizontal, coordinate + (thickness - 1) / 2, start, start + extent - 1)
-                        }
-                    }
+            val contours = mutableListOf<MatOfPoint>()
+            Mat().use { hierarchy ->
+                Imgproc.findContours(rules, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+            }
+            contours.mapNotNull { contour ->
+                val box = contour.use { Geometry.boundingRect(it) }
+                val extent = if (horizontal) box.width else box.height
+                val thickness = if (horizontal) box.height else box.width
+                if (extent < length || thickness >= length) null
+                else {
+                    val start = if (horizontal) box.x else box.y
+                    val coordinate = if (horizontal) box.y else box.x
+                    GridSnapLine(horizontal, coordinate + (thickness - 1) / 2, start, start + extent - 1)
                 }
             }
         }

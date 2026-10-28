@@ -3,11 +3,11 @@ package no.nav.tsm.ocr.template.gcp
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.rendering.ImageType
 import org.apache.pdfbox.rendering.PDFRenderer
-import org.example.no.nav.tsm.ocr.template.template.OrientationGuess
-import org.example.no.nav.tsm.ocr.template.template.PageOrientation
-import org.example.no.nav.tsm.ocr.template.template.PageRotation
-import org.example.no.nav.tsm.ocr.template.template.TemplateGroup
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
+import no.nav.tsm.ocr.template.template.OrientationGuess
+import no.nav.tsm.ocr.template.template.PageOrientation
+import no.nav.tsm.ocr.template.template.PageRotation
+import no.nav.tsm.sykmelding.template.TemplateGroup
+import no.nav.tsm.sykmelding.template.TemplateLibrary
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component

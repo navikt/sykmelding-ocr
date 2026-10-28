@@ -17,7 +17,7 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.roundToInt
 
-enum class PSM_MODE(val value: Int) {
+enum class PsmMode(val value: Int) {
     PSM_OSD_ONLY(0),
     PSM_AUTO_OSD(1),
     PSM_AUTO_ONLY(2),
@@ -100,10 +100,9 @@ data class FieldText(val lines: List<TextRegion>) {
     val text: String get() = lines.joinToString("\n") { it.text }
 }
 
-class Ocr() {
+class Ocr {
 
     internal object TessData {
-        private val languages = listOf("nor")
         private val auxFiles = listOf("osd")
 
         private val dir: Path by lazy { tempDirectory("tessdata") }
@@ -152,7 +151,7 @@ class Ocr() {
         }
     }
 
-    fun parse(img: BufferedImage, psmMode: PSM_MODE = PSM_MODE.PSM_AUTO): String? {
+    fun parse(img: BufferedImage, psmMode: PsmMode = PsmMode.PSM_AUTO): String? {
         val grayscale = grayscale(img)
         val pixels = (grayscale.raster.dataBuffer as DataBufferByte).data
 
@@ -170,7 +169,7 @@ class Ocr() {
         }
     }
 
-    internal fun detectText(image: BufferedImage, psmMode: PSM_MODE, dpi: Int?, allowedCharacters: String?): List<TextRegion> {
+    internal fun detectText(image: BufferedImage, psmMode: PsmMode, dpi: Int?, allowedCharacters: String?): List<TextRegion> {
         val page = grayscale(image)
         return withEngine { engine ->
             engine.setPage(page, psmMode, dpi)
@@ -196,7 +195,7 @@ class Ocr() {
     }
 }
 
-internal fun TessBaseAPI.setPage(page: BufferedImage, psmMode: PSM_MODE, dpi: Int?) {
+internal fun TessBaseAPI.setPage(page: BufferedImage, psmMode: PsmMode, dpi: Int?) {
     val pixels = (page.raster.dataBuffer as DataBufferByte).data
     SetPageSegMode(psmMode.value)
     SetImage(pixels, page.width, page.height, 1, page.width)

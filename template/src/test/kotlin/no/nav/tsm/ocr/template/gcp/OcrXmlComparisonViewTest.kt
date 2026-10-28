@@ -3,9 +3,9 @@ package no.nav.tsm.ocr.template.gcp
 import no.nav.tsm.sykmelding.ocr.FieldText
 import no.nav.tsm.sykmelding.ocr.PageRead
 import no.nav.tsm.sykmelding.ocr.TextRegion
-import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.Template
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
+import no.nav.tsm.sykmelding.template.Felter
+import no.nav.tsm.sykmelding.template.Template
+import no.nav.tsm.sykmelding.template.TemplateLibrary
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File

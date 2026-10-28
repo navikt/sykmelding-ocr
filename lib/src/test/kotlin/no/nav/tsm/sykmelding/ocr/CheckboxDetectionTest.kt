@@ -1,8 +1,8 @@
 package no.nav.tsm.sykmelding.ocr
 
 import no.nav.tsm.sykmelding.model.CheckboxState
-import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.FieldType
+import no.nav.tsm.sykmelding.template.Felter
+import no.nav.tsm.sykmelding.template.FieldType
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.image.BufferedImage

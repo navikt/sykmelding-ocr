@@ -17,10 +17,10 @@ import no.nav.tsm.sykmelding.template.KeypointDetector
 import no.nav.tsm.sykmelding.template.MatchFilter
 import no.nav.tsm.sykmelding.template.MatchingMethods
 import no.nav.tsm.sykmelding.template.TemplateMatcher
-import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.PdfTemplateImages
-import org.example.no.nav.tsm.ocr.template.template.TemplateGroup
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
+import no.nav.tsm.sykmelding.template.Felter
+import no.nav.tsm.sykmelding.template.PdfTemplateImages
+import no.nav.tsm.sykmelding.template.TemplateGroup
+import no.nav.tsm.sykmelding.template.TemplateLibrary
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component

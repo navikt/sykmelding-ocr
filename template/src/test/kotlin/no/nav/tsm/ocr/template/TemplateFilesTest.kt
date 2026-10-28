@@ -1,8 +1,8 @@
 package no.nav.tsm.ocr.template
 
-import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.Template
-import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
+import no.nav.tsm.sykmelding.template.Felter
+import no.nav.tsm.sykmelding.template.Template
+import no.nav.tsm.sykmelding.template.TemplateFiles
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals

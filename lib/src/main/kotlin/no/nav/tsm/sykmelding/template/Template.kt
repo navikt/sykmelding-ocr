@@ -1,4 +1,4 @@
-package org.example.no.nav.tsm.ocr.template.template
+package no.nav.tsm.sykmelding.template
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import no.nav.tsm.sykmelding.utils.GridEdit

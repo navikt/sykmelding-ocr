@@ -6,7 +6,7 @@ import no.nav.tsm.sykmelding.ocr.CheckboxReading
 import no.nav.tsm.sykmelding.ocr.FieldSegment
 import no.nav.tsm.sykmelding.ocr.FieldText
 import no.nav.tsm.sykmelding.ocr.skipsOcr
-import org.example.no.nav.tsm.ocr.template.template.Felter
+import no.nav.tsm.sykmelding.template.Felter
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component

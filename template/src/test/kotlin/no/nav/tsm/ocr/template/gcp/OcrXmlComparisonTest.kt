@@ -11,7 +11,7 @@ import no.nav.tsm.sykmelding.ocr.FieldText
 import no.nav.tsm.sykmelding.ocr.PageRead
 import no.nav.tsm.sykmelding.ocr.SykmeldingOcrMapping
 import no.nav.tsm.sykmelding.ocr.TextRegion
-import org.example.no.nav.tsm.ocr.template.template.Felter
+import no.nav.tsm.sykmelding.template.Felter
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

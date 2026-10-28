@@ -16,7 +16,7 @@ import no.nav.tsm.sykmelding.model.OcrParserTilbakedatering
 import no.nav.tsm.sykmelding.model.OcrParserTilleggsinformasjon
 import no.nav.tsm.sykmelding.template.TemplateMatchResult
 import no.nav.tsm.sykmelding.template.TemplateMatcher
-import org.example.no.nav.tsm.ocr.template.template.Felter
+import no.nav.tsm.sykmelding.template.Felter
 import org.slf4j.LoggerFactory
 import java.io.File
 

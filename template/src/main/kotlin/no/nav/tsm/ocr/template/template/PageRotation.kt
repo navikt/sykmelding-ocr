@@ -1,12 +1,12 @@
-package org.example.no.nav.tsm.ocr.template.template
+package no.nav.tsm.ocr.template.template
 
 import no.nav.tsm.sykmelding.utils.estimateSkew
+import no.nav.tsm.sykmelding.utils.toMat
+import no.nav.tsm.sykmelding.utils.use
 import org.bytedeco.javacpp.BytePointer
 import org.bytedeco.javacpp.FloatPointer
 import org.bytedeco.javacpp.IntPointer
 import org.bytedeco.javacpp.PointerPointer
-import org.bytedeco.opencv.global.opencv_core.CV_8UC1
-import org.bytedeco.opencv.opencv_core.Mat
 import org.bytedeco.tesseract.TessBaseAPI
 import org.bytedeco.tesseract.global.tesseract.PSM_OSD_ONLY
 import java.awt.Color
@@ -129,7 +129,7 @@ object PageOrientation {
         val (orientation, confidence) = orientation(gray)
         val turns = if (orientation != null && confidence != null && confidence >= MIN_CONFIDENCE) (4 - orientation / 90) % 4 else 0
         val upright = PageRotation(turns).apply(gray).let(::gray)
-        val skew = mat(upright).use { estimateSkew(it) }
+        val skew = toMat(upright).use { estimateSkew(it) }
         return OrientationGuess(PageRotation(turns, -skew), orientation, confidence, skew)
     }
 
@@ -164,10 +164,5 @@ object PageOrientation {
                 try { g.color = Color.WHITE; g.fillRect(0, 0, width, height); g.drawImage(image, 0, 0, null) } finally { g.dispose() }
             }
         }
-    }
-
-    private fun mat(gray: BufferedImage): Mat {
-        val bytes = (gray.raster.dataBuffer as DataBufferByte).data
-        return Mat(gray.height, gray.width, CV_8UC1).apply { data().put(bytes, 0, bytes.size) }
     }
 }

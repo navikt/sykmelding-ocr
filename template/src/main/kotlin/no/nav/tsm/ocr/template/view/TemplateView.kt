@@ -16,20 +16,21 @@ import no.nav.tsm.sykmelding.utils.findContourBoxes
 import no.nav.tsm.sykmelding.utils.FeatureDetectorType
 import no.nav.tsm.sykmelding.utils.findFeatures
 import no.nav.tsm.sykmelding.utils.toMat
-import org.bytedeco.opencv.opencv_core.Rect
-import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.FieldCatalog
-import org.example.no.nav.tsm.ocr.template.template.FieldDefinition
-import org.example.no.nav.tsm.ocr.template.template.FieldType
-import org.example.no.nav.tsm.ocr.template.template.ImageClearArea
-import org.example.no.nav.tsm.ocr.template.template.Template
-import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
-import org.example.no.nav.tsm.ocr.template.template.PdfTemplateImages
-import org.example.no.nav.tsm.ocr.template.template.PageOrientation
-import org.example.no.nav.tsm.ocr.template.template.PageRotation
-import org.example.no.nav.tsm.ocr.template.template.OrientationGuess
-import org.example.no.nav.tsm.ocr.template.template.clearTemplateAreas
-import org.bytedeco.opencv.opencv_core.Mat
+import no.nav.tsm.sykmelding.utils.use
+import org.opencv.core.Rect
+import no.nav.tsm.sykmelding.template.Felter
+import no.nav.tsm.sykmelding.template.FieldCatalog
+import no.nav.tsm.sykmelding.template.FieldDefinition
+import no.nav.tsm.sykmelding.template.FieldType
+import no.nav.tsm.ocr.template.template.ImageClearArea
+import no.nav.tsm.sykmelding.template.Template
+import no.nav.tsm.sykmelding.template.TemplateFiles
+import no.nav.tsm.sykmelding.template.PdfTemplateImages
+import no.nav.tsm.ocr.template.template.PageOrientation
+import no.nav.tsm.ocr.template.template.PageRotation
+import no.nav.tsm.ocr.template.template.OrientationGuess
+import no.nav.tsm.ocr.template.template.clearTemplateAreas
+import org.opencv.core.Mat
 import java.awt.BasicStroke
 import java.awt.BorderLayout
 import java.awt.Color
@@ -68,7 +69,7 @@ import kotlin.math.roundToInt
 
 private data class ContourEntry(val index: Int, val bounds: Rect, val kind: String) {
     override fun toString() =
-        "$kind ${index + 1}: (${bounds.x()}, ${bounds.y()}) ${bounds.width()} × ${bounds.height()} px"
+        "$kind ${index + 1}: (${bounds.x}, ${bounds.y}) ${bounds.width} × ${bounds.height} px"
 }
 
 private data class CornerEntry(val index: Int, val point: Point) {
@@ -318,7 +319,7 @@ class TemplateView(
             status.text = "Velg en celle eller tekstgruppe først."
             return null
         }
-        return entry.bounds.let { Rectangle(it.x(), it.y(), it.width(), it.height()) }
+        return entry.bounds.let { Rectangle(it.x, it.y, it.width, it.height) }
     }
 
     private fun removeArea(bounds: Rectangle, preserveBorders: Boolean = false) {
@@ -416,8 +417,7 @@ class TemplateView(
     }
 
     private fun detectCells(): Boolean {
-        if (!requireImage()) return false
-        return runCatching {
+        return requireImage() && runCatching {
             minimumLineLength.commitEdit()
             gapSize.commitEdit()
             canvas.gridSettings = canvas.gridSettings.copy(
@@ -1002,9 +1002,7 @@ internal class TemplateImageCanvas(
         val bufferedImage = requireNotNull(image) { "Importer et malbilde først." }
         val cells = toMat(bufferedImage).use { source ->
             createGridMask(source, gridSettings, gridEdits).use { mask ->
-                val preview = toBufferedImage(mask)
-                // Detach the preview from the converter's native-backed image storage.
-                gridPreview = BufferedImage(preview.colorModel, preview.copyData(null), preview.isAlphaPremultiplied, null)
+                gridPreview = toBufferedImage(mask)
                 gridSnapLines = findGridSnapLines(mask, gridSettings.minimumCellSize)
                 findGridCells(mask, gridSettings.minimumCellSize)
             }
@@ -1081,8 +1079,8 @@ internal class TemplateImageCanvas(
                     )
                     val contour = countours.indices.filter { index ->
                         val box = countours[index]
-                        Rectangle(box.x(), box.y(), box.width(), box.height()).contains(point)
-                    }.minByOrNull { countours[it].width().toLong() * countours[it].height() }
+                        Rectangle(box.x, box.y, box.width, box.height).contains(point)
+                    }.minByOrNull { countours[it].width.toLong() * countours[it].height }
                     if (contour != null) {
                         onContourSelected(contour)
                         return
@@ -1200,9 +1198,9 @@ internal class TemplateImageCanvas(
             countours.forEachIndexed { index, countour ->
                 if (showAllContours || index == selectedContour) {
                     drawRegion(
-                        Rectangle(countour.x(), countour.y(), countour.width(), countour.height()),
+                        Rectangle(countour.x, countour.y, countour.width, countour.height),
                         when {
-                            fields.any { it.bounds() == Rectangle(countour.x(), countour.y(), countour.width(), countour.height()) } -> Color(30, 155, 65)
+                            fields.any { it.bounds() == Rectangle(countour.x, countour.y, countour.width, countour.height) } -> Color(30, 155, 65)
                             else -> Color(220, 45, 45)
                         }, index == selectedContour,
                     )

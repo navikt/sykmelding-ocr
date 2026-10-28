@@ -1,10 +1,10 @@
 package no.nav.tsm.ocr.template.gcp
 
 import org.apache.pdfbox.Loader
-import org.example.no.nav.tsm.ocr.template.template.PageRotation
-import org.example.no.nav.tsm.ocr.template.template.PdfTemplateImages
-import org.example.no.nav.tsm.ocr.template.template.TemplateGroup
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
+import no.nav.tsm.ocr.template.template.PageRotation
+import no.nav.tsm.sykmelding.template.PdfTemplateImages
+import no.nav.tsm.sykmelding.template.TemplateGroup
+import no.nav.tsm.sykmelding.template.TemplateLibrary
 import java.io.File
 
 /** Where "Create template from" puts the chosen pages. */
