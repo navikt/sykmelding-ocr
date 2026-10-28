@@ -1,0 +1,287 @@
+[
+  {
+    "id": "a451c6c2-291e-4e30-b766-d874c93af6f8",
+    "navn": "tittel.fornavn",
+    "type": "Text"
+  },
+  {
+    "id": "372f2a16-17a9-4e39-bcd2-73c104a029e9",
+    "navn": "tittel.etternavn",
+    "type": "Text"
+  },
+  {
+    "id": "41c73496-c7e2-48f6-b731-12a47de80508",
+    "navn": "tittel.fnr",
+    "type": "Ident"
+  },
+  {
+    "id": "314a5bf4-d7d2-4528-b4f0-ab9295a66c4e",
+    "navn": "pasient.etternavn",
+    "type": "Text"
+  },
+  {
+    "id": "4282c910-712e-4d5d-a284-26c24b9c75b6",
+    "navn": "pasient.fornavn",
+    "type": "Text"
+  },
+  {
+    "id": "c611c134-99b2-45df-bdae-efa0cbef05b4",
+    "navn": "pasient.fnr",
+    "type": "Ident"
+  },
+  {
+    "id": "8466a101-2798-4735-a5a9-446dc87366f7",
+    "navn": "pasient.telefon",
+    "type": "Number"
+  },
+  {
+    "id": "7b1e2051-39e9-4341-8a2c-adc5a3f72d06",
+    "navn": "pasient.fastlege",
+    "type": "Text"
+  },
+  {
+    "id": "8f334bf6-fbe5-4590-b160-d30bbb6e65a1",
+    "navn": "pasient.navkontor",
+    "type": "Text"
+  },
+  {
+    "id": "65484d5f-bf80-4f23-8c8f-3f0de987a508",
+    "navn": "arbeidsgiver.type",
+    "type": "Text"
+  },
+  {
+    "id": "7e439391-043d-4016-af03-e9c0f3c1ef2d",
+    "navn": "arbeidsgiver.arbeidsgiver",
+    "type": "Text"
+  },
+  {
+    "id": "62fc489f-21c8-444a-9929-7cfa3250b7d5",
+    "navn": "arbeidsgiver.yrke",
+    "type": "Text"
+  },
+  {
+    "id": "6a4d0a3d-4911-40f9-9721-41b821142e40",
+    "navn": "arbeidsgiver.stillingsprosent",
+    "type": "Number"
+  },
+  {
+    "id": "6097ddce-df77-414b-9831-0474e681c0ac",
+    "navn": "hoveddiagnose.system",
+    "type": "Text"
+  },
+  {
+    "id": "580d2f52-585c-4a18-b2ae-91f7f902e99d",
+    "navn": "hoveddiagnose.kode",
+    "type": "Code"
+  },
+  {
+    "id": "e1c60d2c-0e3f-4041-9f95-24828c0fe76d",
+    "navn": "hoveddiagnose.text",
+    "type": "Text"
+  },
+  {
+    "id": "32f7fa83-98cb-467a-808a-ef1586a63258",
+    "navn": "bidiagnose.system",
+    "type": "Text"
+  },
+  {
+    "id": "7232f088-09a7-4052-89fc-93c5aad4ebb7",
+    "navn": "bidiagnose.kode",
+    "type": "Code"
+  },
+  {
+    "id": "b766259b-91bf-4506-8eec-487e30558eb3",
+    "navn": "bidiagnose.text",
+    "type": "Text"
+  },
+  {
+    "id": "3ff8badf-67ff-4152-901b-13f1d3c79713",
+    "navn": "diagnose.lovfestetfravarsgrunn",
+    "type": "Text"
+  },
+  {
+    "id": "db6ed07e-72f4-47b7-a3b0-43882b468cfd",
+    "navn": "diagnose.fravarsgrunnBeskrivelse",
+    "type": "Text"
+  },
+  {
+    "id": "43b64335-9293-47fd-94e2-e57d1665a65a",
+    "navn": "diagnose.svangerskapsrelatert",
+    "type": "Checkbox"
+  },
+  {
+    "id": "ceb6d721-99d5-434c-b475-2cb9a49c61c1",
+    "navn": "diagnose.yrkesskade",
+    "type": "Checkbox"
+  },
+  {
+    "id": "87ee6305-0a7e-408f-877e-4642a1317734",
+    "navn": "diagnose.yrkesskade.skadedato",
+    "type": "Text"
+  },
+  {
+    "id": "88a0ba34-6755-4f3f-926c-619ce052cc8c",
+    "navn": "diagnose.skjermes",
+    "type": "Checkbox"
+  },
+  {
+    "id": "ce67dd59-2d4c-4afb-937b-ec9994b8da13",
+    "navn": "aktivitet.fom",
+    "type": "Date"
+  },
+  {
+    "id": "dbd4aafa-3b04-407b-b0d1-27bbd109409c",
+    "navn": "aktivitet.tom",
+    "type": "Date"
+  },
+  {
+    "id": "255a3c3a-200f-43dc-bb4a-ba8d54ed2193",
+    "navn": "aktivitet.avventende.tom",
+    "type": "Date"
+  },
+  {
+    "id": "41f1fd0a-73e6-4173-984b-da9ec0dede57",
+    "navn": "aktivitet.avventende.fom",
+    "type": "Date"
+  },
+  {
+    "id": "e92b18a8-1d16-4f60-8c8d-7aebb8231af0",
+    "navn": "aktivitet.gradert.fom",
+    "type": "Date"
+  },
+  {
+    "id": "15005dd3-12c8-4705-8bce-007bbd7d8197",
+    "navn": "aktivitet.gradert.tom",
+    "type": "Date"
+  },
+  {
+    "id": "d1decd44-831e-4d31-9c71-802bdb494331",
+    "navn": "aktivitet.behandlingsdager.tom",
+    "type": "Date"
+  },
+  {
+    "id": "53438b74-21a6-49e5-8504-a22bb3b3c998",
+    "navn": "aktivitet.behandlingsdager.fom",
+    "type": "Date"
+  },
+  {
+    "id": "91fa1bdb-4962-4440-82c4-09f75ffc743e",
+    "navn": "aktivitet.reisetilskudd.fom",
+    "type": "Date"
+  },
+  {
+    "id": "82a0acb7-946d-4c3a-b3ea-2f6fd23b66ce",
+    "navn": "aktivitet.reisetilskudd.tom",
+    "type": "Date"
+  },
+  {
+    "id": "f304ada9-c113-4010-b6e5-42c213003606",
+    "navn": "aktivitet.innspillArbeidsgiver",
+    "type": "Text"
+  },
+  {
+    "id": "bcd3de7f-e3af-4e75-9a45-bd31095413ca",
+    "navn": "aktivitet.gradert.grad",
+    "type": "Number"
+  },
+  {
+    "id": "dbd59184-32fb-4047-b13e-2bcdbffdde6b",
+    "navn": "aktivitet.gradert.reisetilskudd",
+    "type": "Checkbox"
+  },
+  {
+    "id": "12f9ef3a-bd60-436f-8d79-20a409e74fbb",
+    "navn": "aktivitet.medisinskeArsaker",
+    "type": "Checkbox"
+  },
+  {
+    "id": "f3cd3cc5-1d61-4035-847c-42926d8a19be",
+    "navn": "aktivitet.forholdArbeidsplassen",
+    "type": "Checkbox"
+  },
+  {
+    "id": "d03879a8-7ca8-40d1-9c81-c6f1e9a1b0c6",
+    "navn": "aktivitet.behandlingsdager.dager",
+    "type": "Number"
+  },
+  {
+    "id": "b2ccf923-2834-416e-bc92-faaecc5f30f3",
+    "navn": "prognose.arbeidsforEtterPerioden",
+    "type": "Checkbox"
+  },
+  {
+    "id": "ce8d5804-65f5-41a3-86c5-f1d95e8b80e6",
+    "navn": "prognose.arbeidsforEtterPerioden.beskrivelse",
+    "type": "Text"
+  },
+  {
+    "id": "908a5621-4018-4ac4-b4c6-ac67a1a0193d",
+    "navn": "arbeidsevne.tilretteleggingArbeidsplassen",
+    "type": "Text"
+  },
+  {
+    "id": "2ff5878a-a4b1-482b-9a40-31841765c952",
+    "navn": "arbeidsevne.tiltakNav",
+    "type": "Text"
+  },
+  {
+    "id": "301e0a8f-5ae6-49e7-a244-d2b257472c56",
+    "navn": "arbeidsevne.innspillNav",
+    "type": "Text"
+  },
+  {
+    "id": "f11c48eb-824a-46ed-a648-28061bd6b5f9",
+    "navn": "melding.nav.bistand",
+    "type": "Checkbox"
+  },
+  {
+    "id": "e09fabcc-688a-4cfe-920a-787c7f2f9839",
+    "navn": "melding.nav.beskrivelse",
+    "type": "Text"
+  },
+  {
+    "id": "4b31907c-7e80-4afd-ac7c-7d09e9b6b6db",
+    "navn": "melding.arbeidsgiver.andreInnspill",
+    "type": "Text"
+  },
+  {
+    "id": "8390cc66-f13a-41e4-b2df-b8926d5aed96",
+    "navn": "tilbakedatering.kontaktdato",
+    "type": "Date"
+  },
+  {
+    "id": "2af69c10-df7f-41ea-b8a7-d29e36830527",
+    "navn": "tilbakedatering.beskrivelse",
+    "type": "Text"
+  },
+  {
+    "id": "6056d99b-eeae-418a-8b27-cc042d27c072",
+    "navn": "bekreftelse.signatur",
+    "type": "Date"
+  },
+  {
+    "id": "efa3a6c7-43a6-4b60-b1e0-f71174c5b1d3",
+    "navn": "bekreftelse.navn",
+    "type": "Text"
+  },
+  {
+    "id": "19f3ecde-721d-48b2-a9ef-ae1e12157b11",
+    "navn": "bekreftelse.hpr",
+    "type": "Number"
+  },
+  {
+    "id": "5b9968eb-7730-4356-91fa-9ed4d7c74de8",
+    "navn": "bekreftelse.telefon",
+    "type": "Number"
+  },
+  {
+    "id": "b08236b0-3a9b-406f-bff7-2b6ac63f546d",
+    "navn": "bekreftelse.adresse",
+    "type": "Text"
+  },
+  {
+    "id": "fd0a554d-01d0-46f9-8790-6b956d12f755",
+    "navn": "startdatoSykefravar",
+    "type": "Date"
+  }
+]

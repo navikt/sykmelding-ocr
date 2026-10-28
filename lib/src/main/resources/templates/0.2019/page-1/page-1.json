@@ -1,0 +1,227 @@
+{
+  "navn" : "test small",
+  "beskrivelse" : "",
+  "felter" : [ {
+    "x" : 1608,
+    "y" : 1280,
+    "bredde" : 1461,
+    "hoyde" : 126,
+    "navn" : "pasient.etternavn",
+    "id" : "314a5bf4-d7d2-4528-b4f0-ab9295a66c4e",
+    "type" : "Text"
+  }, {
+    "x" : 1608,
+    "y" : 1406,
+    "bredde" : 1461,
+    "hoyde" : 124,
+    "navn" : "pasient.fornavn",
+    "id" : "4282c910-712e-4d5d-a284-26c24b9c75b6",
+    "type" : "Text"
+  }, {
+    "x" : 1608,
+    "y" : 1530,
+    "bredde" : 1461,
+    "hoyde" : 126,
+    "navn" : "pasient.fnr",
+    "id" : "c611c134-99b2-45df-bdae-efa0cbef05b4",
+    "type" : "Ident"
+  }, {
+    "x" : 1608,
+    "y" : 1654,
+    "bredde" : 1460,
+    "hoyde" : 126,
+    "navn" : "pasient.telefon",
+    "id" : "8466a101-2798-4735-a5a9-446dc87366f7",
+    "type" : "Number"
+  }, {
+    "x" : 1608,
+    "y" : 1778,
+    "bredde" : 1460,
+    "hoyde" : 126,
+    "navn" : "pasient.fastlege",
+    "id" : "7b1e2051-39e9-4341-8a2c-adc5a3f72d06",
+    "type" : "Text"
+  }, {
+    "x" : 1608,
+    "y" : 1903,
+    "bredde" : 1460,
+    "hoyde" : 126,
+    "navn" : "pasient.navkontor",
+    "id" : "8f334bf6-fbe5-4590-b160-d30bbb6e65a1",
+    "type" : "Text"
+  }, {
+    "x" : 1608,
+    "y" : 2151,
+    "bredde" : 1460,
+    "hoyde" : 126,
+    "navn" : "arbeidsgiver.type",
+    "id" : "65484d5f-bf80-4f23-8c8f-3f0de987a508",
+    "type" : "Text"
+  }, {
+    "x" : 1608,
+    "y" : 2275,
+    "bredde" : 1460,
+    "hoyde" : 125,
+    "navn" : "arbeidsgiver.arbeidsgiver",
+    "id" : "7e439391-043d-4016-af03-e9c0f3c1ef2d",
+    "type" : "Text"
+  }, {
+    "x" : 1608,
+    "y" : 2398,
+    "bredde" : 1460,
+    "hoyde" : 126,
+    "navn" : "arbeidsgiver.yrke",
+    "id" : "62fc489f-21c8-444a-9929-7cfa3250b7d5",
+    "type" : "Text"
+  }, {
+    "x" : 1608,
+    "y" : 2522,
+    "bredde" : 1458,
+    "hoyde" : 126,
+    "navn" : "arbeidsgiver.stillingsprosent",
+    "id" : "6a4d0a3d-4911-40f9-9721-41b821142e40",
+    "type" : "Number"
+  }, {
+    "x" : 1096,
+    "y" : 2848,
+    "bredde" : 510,
+    "hoyde" : 129,
+    "navn" : "hoveddiagnose.system",
+    "id" : "6097ddce-df77-414b-9831-0474e681c0ac",
+    "type" : "Text"
+  }, {
+    "x" : 1607,
+    "y" : 2848,
+    "bredde" : 462,
+    "hoyde" : 128,
+    "navn" : "hoveddiagnose.kode",
+    "id" : "580d2f52-585c-4a18-b2ae-91f7f902e99d",
+    "type" : "Code"
+  }, {
+    "x" : 2071,
+    "y" : 2846,
+    "bredde" : 995,
+    "hoyde" : 128,
+    "navn" : "hoveddiagnose.text",
+    "id" : "e1c60d2c-0e3f-4041-9f95-24828c0fe76d",
+    "type" : "Text"
+  }, {
+    "x" : 1096,
+    "y" : 3054,
+    "bredde" : 510,
+    "hoyde" : 127,
+    "navn" : "bidiagnose.system",
+    "id" : "32f7fa83-98cb-467a-808a-ef1586a63258",
+    "type" : "Text"
+  }, {
+    "x" : 1607,
+    "y" : 3052,
+    "bredde" : 462,
+    "hoyde" : 129,
+    "navn" : "bidiagnose.kode",
+    "id" : "7232f088-09a7-4052-89fc-93c5aad4ebb7",
+    "type" : "Code"
+  }, {
+    "x" : 2071,
+    "y" : 3050,
+    "bredde" : 995,
+    "hoyde" : 130,
+    "navn" : "bidiagnose.text",
+    "id" : "b766259b-91bf-4506-8eec-487e30558eb3",
+    "type" : "Text"
+  }, {
+    "x" : 1096,
+    "y" : 3307,
+    "bredde" : 510,
+    "hoyde" : 225,
+    "navn" : "diagnose.lovfestetfravarsgrunn",
+    "id" : "3ff8badf-67ff-4152-901b-13f1d3c79713",
+    "type" : "Text"
+  }, {
+    "x" : 1607,
+    "y" : 3255,
+    "bredde" : 1459,
+    "hoyde" : 275,
+    "navn" : "diagnose.fravarsgrunnBeskrivelse",
+    "id" : "db6ed07e-72f4-47b7-a3b0-43882b468cfd",
+    "type" : "Text"
+  }, {
+    "x" : 444,
+    "y" : 3598,
+    "bredde" : 49,
+    "hoyde" : 47,
+    "navn" : "diagnose.svangerskapsrelatert",
+    "id" : "43b64335-9293-47fd-94e2-e57d1665a65a",
+    "type" : "Checkbox"
+  }, {
+    "x" : 1376,
+    "y" : 3596,
+    "bredde" : 49,
+    "hoyde" : 49,
+    "navn" : "diagnose.yrkesskade",
+    "id" : "ceb6d721-99d5-434c-b475-2cb9a49c61c1",
+    "type" : "Checkbox"
+  }, {
+    "x" : 2294,
+    "y" : 3604,
+    "bredde" : 772,
+    "hoyde" : 129,
+    "navn" : "diagnose.yrkesskade.skadedato",
+    "id" : "87ee6305-0a7e-408f-877e-4642a1317734",
+    "type" : "Text"
+  }, {
+    "x" : 444,
+    "y" : 3791,
+    "bredde" : 49,
+    "hoyde" : 49,
+    "navn" : "diagnose.skjermes",
+    "id" : "88a0ba34-6755-4f3f-926c-619ce052cc8c",
+    "type" : "Checkbox"
+  }, {
+    "x" : 1608,
+    "y" : 1034,
+    "bredde" : 1461,
+    "hoyde" : 123,
+    "navn" : "startdatoSykefravar",
+    "id" : "fd0a554d-01d0-46f9-8790-6b956d12f755",
+    "type" : "Date"
+  }, {
+    "x" : 2220,
+    "y" : 874,
+    "bredde" : 849,
+    "hoyde" : 95,
+    "navn" : "tittel.fnr",
+    "id" : "41c73496-c7e2-48f6-b731-12a47de80508",
+    "type" : "Ident"
+  }, {
+    "x" : 134,
+    "y" : 874,
+    "bredde" : 1039,
+    "hoyde" : 99,
+    "navn" : "tittel.etternavn",
+    "id" : "372f2a16-17a9-4e39-bcd2-73c104a029e9",
+    "type" : "Text"
+  }, {
+    "x" : 1179,
+    "y" : 874,
+    "bredde" : 1034,
+    "hoyde" : 96,
+    "navn" : "tittel.fornavn",
+    "id" : "a451c6c2-291e-4e30-b766-d874c93af6f8",
+    "type" : "Text"
+  } ],
+  "templateBilde" : "template.png",
+  "gridSettings" : {
+    "minimumLineLength" : 40,
+    "gapSize" : 0,
+    "minimumCellSize" : 12,
+    "inkThreshold" : 225
+  },
+  "gridEdits" : [ {
+    "tool" : "Horizontal line",
+    "x1" : 130,
+    "y1" : 873,
+    "x2" : 3072,
+    "y2" : 873
+  } ]
+}

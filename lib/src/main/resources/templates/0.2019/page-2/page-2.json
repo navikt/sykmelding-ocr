@@ -1,0 +1,203 @@
+{
+  "navn" : "page-2",
+  "beskrivelse" : "Fra PDF-side 2",
+  "felter" : [ {
+    "x" : 2654,
+    "y" : 2343,
+    "bredde" : 419,
+    "hoyde" : 125,
+    "navn" : "aktivitet.behandlingsdager.tom",
+    "id" : "d1decd44-831e-4d31-9c71-802bdb494331",
+    "type" : "Date"
+  }, {
+    "x" : 2219,
+    "y" : 2342,
+    "bredde" : 433,
+    "hoyde" : 126,
+    "navn" : "aktivitet.behandlingsdager.fom",
+    "id" : "53438b74-21a6-49e5-8504-a22bb3b3c998",
+    "type" : "Date"
+  }, {
+    "x" : 2219,
+    "y" : 2670,
+    "bredde" : 433,
+    "hoyde" : 126,
+    "navn" : "aktivitet.reisetilskudd.fom",
+    "id" : "91fa1bdb-4962-4440-82c4-09f75ffc743e",
+    "type" : "Date"
+  }, {
+    "x" : 2654,
+    "y" : 2670,
+    "bredde" : 419,
+    "hoyde" : 126,
+    "navn" : "aktivitet.reisetilskudd.tom",
+    "id" : "82a0acb7-946d-4c3a-b3ea-2f6fd23b66ce",
+    "type" : "Date"
+  }, {
+    "x" : 2219,
+    "y" : 1892,
+    "bredde" : 433,
+    "hoyde" : 126,
+    "navn" : "aktivitet.fom",
+    "id" : "ce67dd59-2d4c-4afb-937b-ec9994b8da13",
+    "type" : "Date"
+  }, {
+    "x" : 2654,
+    "y" : 1892,
+    "bredde" : 419,
+    "hoyde" : 126,
+    "navn" : "aktivitet.tom",
+    "id" : "dbd4aafa-3b04-407b-b0d1-27bbd109409c",
+    "type" : "Date"
+  }, {
+    "x" : 136,
+    "y" : 587,
+    "bredde" : 1036,
+    "hoyde" : 98,
+    "navn" : "tittel.etternavn",
+    "id" : "372f2a16-17a9-4e39-bcd2-73c104a029e9",
+    "type" : "Text"
+  }, {
+    "x" : 1787,
+    "y" : 1656,
+    "bredde" : 49,
+    "hoyde" : 49,
+    "navn" : "aktivitet.gradert.reisetilskudd",
+    "id" : "dbd59184-32fb-4047-b13e-2bcdbffdde6b",
+    "type" : "Checkbox"
+  }, {
+    "x" : 383,
+    "y" : 1172,
+    "bredde" : 2691,
+    "hoyde" : 234,
+    "navn" : "aktivitet.innspillArbeidsgiver",
+    "id" : "f304ada9-c113-4010-b6e5-42c213003606",
+    "type" : "Text"
+  }, {
+    "x" : 383,
+    "y" : 1688,
+    "bredde" : 1113,
+    "hoyde" : 126,
+    "navn" : "aktivitet.gradert.grad",
+    "id" : "bcd3de7f-e3af-4e75-9a45-bd31095413ca",
+    "type" : "Number"
+  }, {
+    "x" : 408,
+    "y" : 2056,
+    "bredde" : 49,
+    "hoyde" : 48,
+    "navn" : "aktivitet.medisinskeArsaker",
+    "id" : "12f9ef3a-bd60-436f-8d79-20a409e74fbb",
+    "type" : "Checkbox"
+  }, {
+    "x" : 408,
+    "y" : 2178,
+    "bredde" : 49,
+    "hoyde" : 47,
+    "navn" : "aktivitet.forholdArbeidsplassen",
+    "id" : "f3cd3cc5-1d61-4035-847c-42926d8a19be",
+    "type" : "Checkbox"
+  }, {
+    "x" : 2219,
+    "y" : 2470,
+    "bredde" : 854,
+    "hoyde" : 122,
+    "navn" : "aktivitet.behandlingsdager.dager",
+    "id" : "d03879a8-7ca8-40d1-9c81-c6f1e9a1b0c6",
+    "type" : "Number"
+  }, {
+    "x" : 382,
+    "y" : 3832,
+    "bredde" : 2691,
+    "hoyde" : 220,
+    "navn" : "arbeidsevne.tiltakNav",
+    "id" : "2ff5878a-a4b1-482b-9a40-31841765c952",
+    "type" : "Text"
+  }, {
+    "x" : 382,
+    "y" : 3536,
+    "bredde" : 2691,
+    "hoyde" : 222,
+    "navn" : "arbeidsevne.tilretteleggingArbeidsplassen",
+    "id" : "908a5621-4018-4ac4-b4c6-ac67a1a0193d",
+    "type" : "Text"
+  }, {
+    "x" : 2220,
+    "y" : 974,
+    "bredde" : 433,
+    "hoyde" : 122,
+    "navn" : "aktivitet.avventende.fom",
+    "id" : "41f1fd0a-73e6-4173-984b-da9ec0dede57",
+    "type" : "Date"
+  }, {
+    "x" : 2655,
+    "y" : 971,
+    "bredde" : 419,
+    "hoyde" : 125,
+    "navn" : "aktivitet.avventende.tom",
+    "id" : "255a3c3a-200f-43dc-bb4a-ba8d54ed2193",
+    "type" : "Date"
+  }, {
+    "x" : 1179,
+    "y" : 587,
+    "bredde" : 1037,
+    "hoyde" : 98,
+    "navn" : "tittel.fornavn",
+    "id" : "a451c6c2-291e-4e30-b766-d874c93af6f8",
+    "type" : "Text"
+  }, {
+    "x" : 2223,
+    "y" : 587,
+    "bredde" : 851,
+    "hoyde" : 97,
+    "navn" : "tittel.fnr",
+    "id" : "41c73496-c7e2-48f6-b731-12a47de80508",
+    "type" : "Ident"
+  }, {
+    "x" : 382,
+    "y" : 3119,
+    "bredde" : 2691,
+    "hoyde" : 221,
+    "navn" : "prognose.arbeidsforEtterPerioden.beskrivelse",
+    "id" : "ce8d5804-65f5-41a3-86c5-f1d95e8b80e6",
+    "type" : "Text"
+  }, {
+    "x" : 408,
+    "y" : 2954,
+    "bredde" : 48,
+    "hoyde" : 48,
+    "navn" : "prognose.arbeidsforEtterPerioden",
+    "id" : "b2ccf923-2834-416e-bc92-faaecc5f30f3",
+    "type" : "Checkbox"
+  }, {
+    "x" : 2220,
+    "y" : 1484,
+    "bredde" : 432,
+    "hoyde" : 126,
+    "navn" : "aktivitet.gradert.fom",
+    "id" : "e92b18a8-1d16-4f60-8c8d-7aebb8231af0",
+    "type" : "Date"
+  }, {
+    "x" : 2655,
+    "y" : 1484,
+    "bredde" : 419,
+    "hoyde" : 126,
+    "navn" : "aktivitet.gradert.tom",
+    "id" : "15005dd3-12c8-4705-8bce-007bbd7d8197",
+    "type" : "Date"
+  } ],
+  "templateBilde" : "template.png",
+  "gridSettings" : {
+    "minimumLineLength" : 40,
+    "gapSize" : 3,
+    "minimumCellSize" : 12,
+    "inkThreshold" : 225
+  },
+  "gridEdits" : [ {
+    "tool" : "Horizontal line",
+    "x1" : 135,
+    "y1" : 586,
+    "x2" : 3077,
+    "y2" : 586
+  } ]
+}
