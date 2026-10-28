@@ -3,8 +3,8 @@ package no.nav.tsm.sykmelding.ocr
 import no.nav.tsm.sykmelding.model.CheckboxState
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.rendering.PDFRenderer
-import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.FieldType
+import no.nav.tsm.sykmelding.template.Felter
+import no.nav.tsm.sykmelding.template.FieldType
 import org.junit.jupiter.api.Assertions.assertEquals
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import tools.jackson.module.kotlin.readValue
@@ -103,7 +103,7 @@ class OcrTest {
         val crops: List<Crop> = objectMapper.readValue(javaClass.getResourceAsStream("/fields.json")!!.readBytes())
         val page = renderPages(pdf).first()
         crops.forEach {
-            val result = ocr.parse(page.getSubimage(it.x, it.y, it.width, it.height), PSM_MODE.PSM_SINGLE_LINE)
+            val result = ocr.parse(page.getSubimage(it.x, it.y, it.width, it.height), PsmMode.PSM_SINGLE_LINE)
             assertEquals("R74", result?.trim(), it.name)
         }
     }

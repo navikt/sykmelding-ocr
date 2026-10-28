@@ -1,7 +1,5 @@
 package no.nav.tsm.sykmelding.template
 
-import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals

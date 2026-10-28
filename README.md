@@ -8,9 +8,12 @@ val parser = ParseSykmeldingOcr(Ocr(), TemplateMatcher()) // create once: it rea
 val sykmelding = parser.doOcr(pdfBytes)                     // the PDF in memory; doOcr(File) also works
 ```
 
-The lib needs a writable `java.io.tmpdir` (`/tmp` by default). On first use it copies the templates and the
-OCR model there, since they must be files, and JavaCPP extracts its native libraries (OpenCV, Tesseract) to
-`~/.javacpp/cache`, or to `java.io.tmpdir` when the home folder is not writable. The PDF itself is not written to disk.
+The lib needs Java 25 and a writable `java.io.tmpdir` (`/tmp` by default). On first use it copies the templates, the
+OCR model and OpenCV's native library there, since they must be files, and JavaCPP extracts Tesseract's native
+libraries to `~/.javacpp/cache`, or to `java.io.tmpdir` when the home folder is not writable. The PDF itself is not
+written to disk. OpenCV comes from [tsm-opencv](https://github.com/navikt/tsm-opencv) (`no.nav.tsm:tsm-opencv`, on
+GitHub Packages, also through `https://github-package-registry-mirror.gc.nav.no/cached/maven-release`), built for
+Linux x86-64 and macOS arm64 only.
 
 ## Template images
 
@@ -65,9 +68,9 @@ rendered and its features detected once for all template pages it is tested agai
 the PDF is rendered, matched and read (OCR) at can be chosen or typed in; production's are the default.
 So can the matching methods, to try other combinations than production's (SIFT, ratio test, MAGSAC++):
 
-- **Keypoints**: SIFT, ORB (the 10 000 strongest), AKAZE, KAZE or BRISK, found on the pages and the templates
-  alike. Binary descriptors (ORB, AKAZE, BRISK) are matched by Hamming distance, the others by L2.
-- **Match filter**: Lowe's ratio test, cross-check (mutual nearest), or GMS (grid-based motion statistics).
+- **Keypoints**: SIFT or ORB (the 10 000 strongest), found on the pages and the templates alike. ORB's binary
+  descriptors are matched by Hamming distance, SIFT's by L2.
+- **Match filter**: Lowe's ratio test or cross-check (mutual nearest).
 - **Homography**: MAGSAC++, RANSAC, LMedS, RHO, or USAC (default, fast, accurate, PROSAC).
 
 Whatever the methods, a page matches when at least 8 matches, and 40 % of them, agree with the homography and the
@@ -75,13 +78,10 @@ form lines then line up. A match agrees with the homography when it lies within 
 in template pixels at 400 DPI, where 1 px is 0.06 mm) of where the homography puts it. **Auto**, production's, is one
 feature pixel but never less than 3 pixels (OpenCV's default): a scan is never exactly a homography of the form, and
 at 1 pixel too few matches agree for even the right page. Type another number of pixels to try it; a larger one
-accepts looser fits, so the aligned page that OCR reads may be a little off. Render 400 / features 400 / AKAZE / GMS /
-RANSAC within Auto (3 px) is the matcher as it was before these could be chosen; it takes about five times as long as
-production's settings. Reports record the tolerance each run used; reports saved before it was recorded used one
-feature pixel, with no minimum.
-On the test PDFs (two forms and a tilted 150-DPI scan of one), SIFT, AKAZE, KAZE and BRISK
-match them all with the ratio test or GMS, and SIFT with every homography method; cross-check misses with BRISK,
-and ORB finds too few distinctive keypoints on these forms to match more than one of them (with GMS).
+accepts looser fits, so the aligned page that OCR reads may be a little off. Reports record the tolerance each run
+used; reports saved before it was recorded used one feature pixel, with no minimum.
+On the test PDFs (two forms and a tilted 150-DPI scan of one), SIFT matches them all with either match filter and
+every homography method; ORB finds too few distinctive keypoints on these forms to match them all.
 **As production** sets the resolutions and methods back to production's.
 Use **Choose templates…** to test against one, several or all templates; the choice is
 remembered.

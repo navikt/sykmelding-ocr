@@ -1,6 +1,6 @@
 package no.nav.tsm.sykmelding.utils
 
-import org.bytedeco.opencv.opencv_core.Mat
+import org.opencv.core.Mat
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.awt.Color
@@ -93,7 +93,7 @@ class ImageUtilsTest {
 
         val cells = findCellBoxes(toMat(image))
         assertEquals(2, cells.size)
-        assertEquals(2, cells.count { it.bounds.y() < 40 && it.bounds.y() + it.bounds.height() > 40 })
+        assertEquals(2, cells.count { it.bounds.y < 40 && it.bounds.y + it.bounds.height > 40 })
     }
 
     @Test
@@ -134,10 +134,10 @@ class ImageUtilsTest {
 
             val boxes = findContourBoxes(toMat(image)).map { it.bounds }
             assertEquals(1, boxes.size, "BufferedImage type $type")
-            assertEquals(8, boxes.single().x())
-            assertEquals(9, boxes.single().y())
-            assertEquals(10, boxes.single().width())
-            assertEquals(8, boxes.single().height())
+            assertEquals(8, boxes.single().x)
+            assertEquals(9, boxes.single().y)
+            assertEquals(10, boxes.single().width)
+            assertEquals(8, boxes.single().height)
         }
     }
 }

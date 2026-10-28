@@ -2,8 +2,8 @@ package no.nav.tsm.ocr.template.view
 
 import no.nav.tsm.ocr.template.gcp.BucketTemplateTestView
 import no.nav.tsm.ocr.template.gcp.GcpBucketView
-import org.example.no.nav.tsm.ocr.template.template.Template
-import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
+import no.nav.tsm.sykmelding.template.Template
+import no.nav.tsm.sykmelding.template.TemplateFiles
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.event.WindowAdapter
@@ -62,7 +62,7 @@ class MainView : JFrame() {
             val view = TemplateView(template, templateFile = file)
             val editor = PageEditor(this, view, file)
             pageEditors.getOrPut(file.absoluteFile.normalize()) { mutableListOf() }.add(editor)
-            defaultCloseOperation = JFrame.DISPOSE_ON_CLOSE
+            defaultCloseOperation = DISPOSE_ON_CLOSE
             add(view, BorderLayout.CENTER)
             addWindowListener(object : WindowAdapter() {
                 override fun windowClosed(e: WindowEvent) {

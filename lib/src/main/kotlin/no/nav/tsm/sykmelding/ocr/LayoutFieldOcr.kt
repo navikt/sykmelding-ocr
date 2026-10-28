@@ -1,24 +1,24 @@
 package no.nav.tsm.sykmelding.ocr
 
-import org.bytedeco.javacpp.BytePointer
-import org.bytedeco.opencv.global.opencv_core.CV_8UC1
-import org.bytedeco.opencv.global.opencv_imgproc.INTER_AREA
-import org.bytedeco.opencv.global.opencv_imgproc.INTER_CUBIC
-import org.bytedeco.opencv.global.opencv_imgproc.resize
-import org.bytedeco.opencv.opencv_core.Mat
-import org.bytedeco.opencv.opencv_core.Size
+import no.nav.tsm.sykmelding.utils.toBufferedImage
+import no.nav.tsm.sykmelding.utils.toMat
+import no.nav.tsm.sykmelding.utils.use
 import org.bytedeco.tesseract.PageIterator
 import org.bytedeco.tesseract.global.tesseract.PTIsTextType
 import org.bytedeco.tesseract.global.tesseract.RIL_TEXTLINE
 import org.bytedeco.tesseract.global.tesseract.TessPageIteratorDelete
-import org.example.no.nav.tsm.ocr.template.template.FieldType
-import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.PdfTemplateImages
-import org.example.no.nav.tsm.ocr.template.template.rectangle
+import no.nav.tsm.sykmelding.template.FieldType
+import no.nav.tsm.sykmelding.template.Felter
+import no.nav.tsm.sykmelding.template.PdfTemplateImages
+import no.nav.tsm.sykmelding.template.rectangle
+import org.opencv.core.Mat
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc.INTER_AREA
+import org.opencv.imgproc.Imgproc.INTER_CUBIC
+import org.opencv.imgproc.Imgproc.resize
 import java.awt.Color
 import java.awt.Rectangle
 import java.awt.image.BufferedImage
-import java.awt.image.DataBufferByte
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -103,24 +103,16 @@ private fun scaledOut(box: Rectangle, from: Int, to: Int): Rectangle {
 }
 
 /** The gray [page] [scale] times its size: averaged when shrunk, so thin lines and print survive; bicubic when enlarged. */
-private fun resampled(page: BufferedImage, scale: Double): BufferedImage {
-    val result = BufferedImage(maxOf(1, (page.width * scale).roundToInt()), maxOf(1, (page.height * scale).roundToInt()), BufferedImage.TYPE_BYTE_GRAY)
-    val data = (page.raster.dataBuffer as DataBufferByte).data
-    BytePointer(data.size.toLong()).put(data, 0, data.size).use { pixels ->
-        Mat(page.height, page.width, CV_8UC1, pixels).use { source ->
-            Mat().use { target ->
-                Size(result.width, result.height).use { size ->
-                    resize(source, target, size, 0.0, 0.0, if (scale < 1) INTER_AREA else INTER_CUBIC)
-                }
-                target.data().get((result.raster.dataBuffer as DataBufferByte).data)
-            }
-        }
+private fun resampled(page: BufferedImage, scale: Double): BufferedImage = toMat(page).use { source ->
+    Mat().use { target ->
+        val size = Size(maxOf(1, (page.width * scale).roundToInt()).toDouble(), maxOf(1, (page.height * scale).roundToInt()).toDouble())
+        resize(source, target, size, 0.0, 0.0, if (scale < 1) INTER_AREA else INTER_CUBIC)
+        toBufferedImage(target)
     }
-    return result
 }
 
 private fun Ocr.layoutLines(page: OcrPage): List<Rectangle> = withEngine { engine ->
-    engine.setPage(page.image, PSM_MODE.PSM_SPARSE_TEXT, page.resolution)
+    engine.setPage(page.image, PsmMode.PSM_SPARSE_TEXT, page.resolution)
     textLineBoxes(engine.AnalyseLayout()).map(page::toTemplate)
 }
 
@@ -185,7 +177,7 @@ private const val PADDING = 16
 private fun Ocr.readSegment(page: OcrPage, segment: FieldSegment): List<TextRegion> {
     val box = page.toOcr(segment.box)
     if (box.isEmpty) return emptyList()
-    val lines = detectText(crop(page.image, box, page.padding), PSM_MODE.PSM_SINGLE_LINE, page.resolution, segment.field.type.allowedCharacters)
+    val lines = detectText(crop(page.image, box, page.padding), PsmMode.PSM_SINGLE_LINE, page.resolution, segment.field.type.allowedCharacters)
     return lines.map { page.toTemplate(it.translate(box.x - page.padding, box.y - page.padding)) }
 }
 

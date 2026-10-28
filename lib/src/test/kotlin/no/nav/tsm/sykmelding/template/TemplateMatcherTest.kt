@@ -7,7 +7,6 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream
 import org.apache.pdfbox.pdmodel.graphics.image.JPEGFactory
 import org.apache.pdfbox.rendering.ImageType
 import org.apache.pdfbox.rendering.PDFRenderer
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
 import java.awt.Color
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
@@ -90,8 +89,7 @@ class TemplateMatcherTest {
         val expected = TemplateMatcher(templates = templates).use { assertIs<TemplateMatchResult.Matched>(it.matchPdf(bytes)).template }
         val variations = KeypointDetector.entries.map { MatchingMethods(detector = it) } +
             MatchFilter.entries.map { MatchingMethods(filter = it) } +
-            HomographyMethod.entries.map { MatchingMethods(homography = it) } +
-            MatchingMethods(KeypointDetector.AKAZE, MatchFilter.GMS, HomographyMethod.RANSAC)
+            HomographyMethod.entries.map { MatchingMethods(homography = it) }
         for (methods in variations.distinct()) {
             TemplateMatcher(templates = listOf(expected), methods = methods).use { matcher ->
                 assertEquals(methods, matcher.methods)

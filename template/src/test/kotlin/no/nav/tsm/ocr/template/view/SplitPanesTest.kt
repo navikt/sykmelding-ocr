@@ -3,7 +3,7 @@ package no.nav.tsm.ocr.template.view
 import no.nav.tsm.ocr.template.gcp.BucketTemplateTestView
 import no.nav.tsm.ocr.template.gcp.GcpBucketView
 import no.nav.tsm.ocr.template.gcp.SaveFolders
-import org.example.no.nav.tsm.ocr.template.template.TemplateLibrary
+import no.nav.tsm.sykmelding.template.TemplateLibrary
 import org.junit.jupiter.api.io.TempDir
 import java.awt.Component
 import java.awt.Container

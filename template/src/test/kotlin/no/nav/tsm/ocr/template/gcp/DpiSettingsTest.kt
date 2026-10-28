@@ -39,8 +39,8 @@ class DpiSettingsTest {
 
     @Test
     fun `features are found at no more than the render DPI, nor the templates' 400`() {
-        assertEquals(10..75, TestSettings.featureRange(75))
-        assertEquals(10..400, TestSettings.featureRange(600))
+        assertEquals(TestSettings.featureRange(75), 10..75)
+        assertEquals(TestSettings.featureRange(600), 10..400)
         assertEquals(TestSettings(400, 100, 400, MatchingMethods(KeypointDetector.SIFT, MatchFilter.RATIO_TEST, HomographyMethod.MAGSAC)),
             TestSettings.PRODUCTION)
     }
@@ -52,8 +52,8 @@ class DpiSettingsTest {
             "features found at 100 DPI)." in production, production)
 
         val other = PdfTestResult(PdfStatus.MATCHED, reads = emptyList(), settings = TestSettings(200, 50, 50,
-            MatchingMethods(KeypointDetector.AKAZE, MatchFilter.GMS, HomographyMethod.RANSAC))).summary()
-        assertTrue("with AKAZE / GMS / RANSAC within 8 px, the PDF rendered at 200 DPI and features found at 50 DPI " +
+            MatchingMethods(KeypointDetector.ORB, MatchFilter.CROSS_CHECK, HomographyMethod.RANSAC))).summary()
+        assertTrue("with ORB / Cross-check / RANSAC within 8 px, the PDF rendered at 200 DPI and features found at 50 DPI " +
             "(production: SIFT / Ratio test / MAGSAC++ within 4 px, 400 and 100 DPI)." in other, other)
         assertTrue("Fields read with lib's OCR, at 50 DPI (production reads them at 400 DPI); Tesseract is told 70 DPI" in other, other)
 
@@ -71,13 +71,13 @@ class DpiSettingsTest {
 
     @Test
     fun `a matcher is reused only for the same resolutions, methods and tolerance`() {
-        TemplateMatcher(templates = emptyList(), methods = MatchingMethods(KeypointDetector.AKAZE, MatchFilter.GMS)).use { matcher ->
-            val settings = TestSettings(400, 100, 300, MatchingMethods(KeypointDetector.AKAZE, MatchFilter.GMS))
+        TemplateMatcher(templates = emptyList(), methods = MatchingMethods(KeypointDetector.ORB, MatchFilter.CROSS_CHECK)).use { matcher ->
+            val settings = TestSettings(400, 100, 300, MatchingMethods(KeypointDetector.ORB, MatchFilter.CROSS_CHECK))
             assertTrue(settings.matchesAs(matcher), "the OCR resolution does not matter to the matcher")
             assertTrue(settings.copy(tolerance = 4.0).matchesAs(matcher), "Auto is 4 px at 100 DPI")
             assertFalse(settings.copy(tolerance = 3.0).matchesAs(matcher))
-            assertFalse(settings.copy(methods = MatchingMethods(KeypointDetector.AKAZE)).matchesAs(matcher))
-            assertFalse(settings.copy(methods = MatchingMethods(KeypointDetector.AKAZE, MatchFilter.GMS, HomographyMethod.RANSAC)).matchesAs(matcher))
+            assertFalse(settings.copy(methods = MatchingMethods(KeypointDetector.ORB)).matchesAs(matcher))
+            assertFalse(settings.copy(methods = MatchingMethods(KeypointDetector.ORB, MatchFilter.CROSS_CHECK, HomographyMethod.RANSAC)).matchesAs(matcher))
             assertFalse(settings.copy(featureDpi = 75).matchesAs(matcher))
         }
     }
@@ -137,9 +137,9 @@ class DpiSettingsTest {
                     KeypointDetector::description, "Keypoints")
                 val first = field()
                 assertEquals(KeypointDetector.SIFT, first.value)
-                first.select(KeypointDetector.AKAZE)
-                assertEquals("AKAZE", settings.get("detector", null))
-                assertEquals(KeypointDetector.AKAZE, field().value, "read back")
+                first.select(KeypointDetector.ORB)
+                assertEquals("ORB", settings.get("detector", null))
+                assertEquals(KeypointDetector.ORB, field().value, "read back")
                 settings.put("detector", "SURF")
                 assertEquals(KeypointDetector.SIFT, field().value, "not among the detectors: production's")
                 val shown = first.renderer.getListCellRendererComponent(JList(), KeypointDetector.SIFT, 0, false, false) as JLabel

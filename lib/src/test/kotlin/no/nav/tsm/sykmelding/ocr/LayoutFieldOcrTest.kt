@@ -1,10 +1,10 @@
 package no.nav.tsm.sykmelding.ocr
 
 import no.nav.tsm.sykmelding.model.CheckboxState
-import org.example.no.nav.tsm.ocr.template.template.FieldType
-import org.example.no.nav.tsm.ocr.template.template.Felter
-import org.example.no.nav.tsm.ocr.template.template.TemplateFiles
-import org.example.no.nav.tsm.ocr.template.template.rectangle
+import no.nav.tsm.sykmelding.template.FieldType
+import no.nav.tsm.sykmelding.template.Felter
+import no.nav.tsm.sykmelding.template.TemplateFiles
+import no.nav.tsm.sykmelding.template.rectangle
 import java.awt.Color
 import java.awt.Font
 import java.awt.Graphics2D
@@ -156,7 +156,7 @@ class LayoutFieldOcrTest {
         val hpr = fields.single { it.navn == "bekreftelse.hpr" }
         draw(image) {
             color = Color.BLACK
-            font = Font(Font.MONOSPACED, Font.PLAIN, 38)
+            font = mono(38f)
             drawString("1234567", hpr.x + 24, hpr.y + 80)
         }
         assertEquals("1234567", Ocr().readFields(image, fields).getValue(hpr).text)
@@ -175,7 +175,7 @@ class LayoutFieldOcrTest {
         assertEquals(setOf("diagnose.svangerskapsrelatert", "diagnose.yrkesskade", "diagnose.skjermes"), checkboxes.map { it.navn }.toSet())
         draw(image) {
             color = Color.BLACK
-            font = Font(Font.MONOSPACED, Font.PLAIN, 42)
+            font = mono(42f)
             values.forEach { (name, value) -> drawString(value, field(name).x + 22, field(name).y + 80) }
             // Ticked: an X in each box, which OCR would read as a letter.
             checkboxes.forEach { drawString("X", it.x + 25, it.y + 50) }
@@ -244,7 +244,7 @@ class LayoutFieldOcrTest {
                 color = Color.BLACK
                 columns.forEach { fillRect(it, rows.first(), 3, rows.last() - rows.first() + 3) }
                 rows.forEach { fillRect(columns.first(), it, columns.last() - columns.first() + 3, 3) }
-                font = Font(Font.MONOSPACED, Font.PLAIN, 44)
+                font = mono(44f)
                 for (row in 0..1) {
                     val top = rows[row]
                     drawString("ICPC-2", 125, top + 80)
@@ -281,7 +281,7 @@ internal class DrawnCells(vararg cells: Pair<FieldType, String>) {
             graphics.fillRect(100, 60, 3, 125 * cells.size + 3)
             graphics.fillRect(700, 60, 3, 125 * cells.size + 3)
             for (row in 0..cells.size) graphics.fillRect(100, 60 + 125 * row, 603, 3)
-            graphics.font = Font(Font.MONOSPACED, Font.PLAIN, 44)
+            graphics.font = mono(44f)
             values.forEachIndexed { row, value -> graphics.drawString(value, 130, 60 + 125 * row + 80) }
         } finally {
             graphics.dispose()
@@ -297,3 +297,13 @@ private fun draw(image: BufferedImage, block: Graphics2D.() -> Unit) {
         graphics.dispose()
     }
 }
+
+/**
+ * Noto Mono at [size], bundled with the tests so the drawn text is the same on every platform. The logical monospaced
+ * font is not: on Linux its 0 looks like a Ø, which Tesseract does not read as a digit.
+ */
+private fun mono(size: Float): Font = notoMono.deriveFont(size)
+
+private val notoMono: Font = requireNotNull(LayoutFieldOcrTest::class.java.getResourceAsStream("/fonts/NotoMono-Regular.ttf")) {
+    "Missing /fonts/NotoMono-Regular.ttf"
+}.use { Font.createFont(Font.TRUETYPE_FONT, it) }

@@ -1,7 +1,7 @@
 package no.nav.tsm.sykmelding.ocr
 
 import no.nav.tsm.sykmelding.model.CheckboxState
-import org.example.no.nav.tsm.ocr.template.template.Felter
+import no.nav.tsm.sykmelding.template.Felter
 import java.awt.image.BufferedImage
 import java.util.Locale
 import kotlin.math.ceil

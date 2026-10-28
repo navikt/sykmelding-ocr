@@ -1,4 +1,4 @@
-package org.example.no.nav.tsm.ocr.template.template
+package no.nav.tsm.sykmelding.template
 
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.pdmodel.PDDocument

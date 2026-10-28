@@ -4,7 +4,7 @@
 [versions]
 junit-jupiter-engine = "6.0.1"
 tesseract-version = "5.5.3-1.5.14"
-opencv-version = "1.5.14"
+tsm-opencv = "0.0.1"
 jackson = "3.2.2"
 google-cloud-storage = "2.75.0"
 pdfbox = "3.0.8"
@@ -17,7 +17,7 @@ jackson-module-kotlin = { module = "tools.jackson.module:jackson-module-kotlin",
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit-jupiter-engine" }
 bytedeco-tesseract = { module = "org.bytedeco:tesseract", version.ref = "tesseract-version" }
 bytedeco-tesseract-platform = { module = "org.bytedeco:tesseract-platform", version.ref = "tesseract-version" }
-bytedeco-javacv = { module = "org.bytedeco:javacv-platform", version.ref = "opencv-version" }
+tsm-opencv = { module = "no.nav.tsm:tsm-opencv", version.ref = "tsm-opencv" }
 google-cloud-storage = { module = "com.google.cloud:google-cloud-storage", version.ref = "google-cloud-storage" }
 pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox"}
 papirsykemelding = { module = "no.nav.helse.xml:papirsykemelding", version.ref = "papirsykemelding" }
