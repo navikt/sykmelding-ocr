@@ -1,0 +1,137 @@
+{
+  "navn" : "page-3",
+  "beskrivelse" : "Fra PDF-side 3",
+  "felter" : [ {
+    "x" : 414,
+    "y" : 807,
+    "bredde" : 2684,
+    "hoyde" : 334,
+    "navn" : "arbeidsevne.innspillNav",
+    "id" : "301e0a8f-5ae6-49e7-a244-d2b257472c56",
+    "type" : "Text"
+  }, {
+    "x" : 439,
+    "y" : 1303,
+    "bredde" : 49,
+    "hoyde" : 49,
+    "navn" : "melding.nav.bistand",
+    "id" : "f11c48eb-824a-46ed-a648-28061bd6b5f9",
+    "type" : "Checkbox"
+  }, {
+    "x" : 414,
+    "y" : 1459,
+    "bredde" : 2686,
+    "hoyde" : 331,
+    "navn" : "melding.nav.beskrivelse",
+    "id" : "e09fabcc-688a-4cfe-920a-787c7f2f9839",
+    "type" : "Text"
+  }, {
+    "x" : 414,
+    "y" : 1982,
+    "bredde" : 2687,
+    "hoyde" : 330,
+    "navn" : "melding.arbeidsgiver.andreInnspill",
+    "id" : "4b31907c-7e80-4afd-ac7c-7d09e9b6b6db",
+    "type" : "Text"
+  }, {
+    "x" : 2252,
+    "y" : 2427,
+    "bredde" : 852,
+    "hoyde" : 207,
+    "navn" : "tilbakedatering.kontaktdato",
+    "id" : "8390cc66-f13a-41e4-b2df-b8926d5aed96",
+    "type" : "Date"
+  }, {
+    "x" : 415,
+    "y" : 2707,
+    "bredde" : 2690,
+    "hoyde" : 259,
+    "navn" : "tilbakedatering.beskrivelse",
+    "id" : "2af69c10-df7f-41ea-b8a7-d29e36830527",
+    "type" : "Text"
+  }, {
+    "x" : 1467,
+    "y" : 3484,
+    "bredde" : 1641,
+    "hoyde" : 130,
+    "navn" : "bekreftelse.navn",
+    "id" : "efa3a6c7-43a6-4b60-b1e0-f71174c5b1d3",
+    "type" : "Text"
+  }, {
+    "x" : 1467,
+    "y" : 3608,
+    "bredde" : 1641,
+    "hoyde" : 132,
+    "navn" : "bekreftelse.hpr",
+    "id" : "19f3ecde-721d-48b2-a9ef-ae1e12157b11",
+    "type" : "Number"
+  }, {
+    "x" : 1467,
+    "y" : 3732,
+    "bredde" : 1642,
+    "hoyde" : 132,
+    "navn" : "bekreftelse.telefon",
+    "id" : "5b9968eb-7730-4356-91fa-9ed4d7c74de8",
+    "type" : "Number"
+  }, {
+    "x" : 1467,
+    "y" : 3856,
+    "bredde" : 1642,
+    "hoyde" : 129,
+    "navn" : "bekreftelse.adresse",
+    "id" : "b08236b0-3a9b-406f-bff7-2b6ac63f546d",
+    "type" : "Text"
+  }, {
+    "x" : 1518,
+    "y" : 3207,
+    "bredde" : 621,
+    "hoyde" : 150,
+    "navn" : "bekreftelse.signatur",
+    "id" : "6056d99b-eeae-418a-8b27-cc042d27c072",
+    "type" : "Date"
+  }, {
+    "x" : 1211,
+    "y" : 574,
+    "bredde" : 1034,
+    "hoyde" : 96,
+    "navn" : "tittel.fornavn",
+    "id" : "a451c6c2-291e-4e30-b766-d874c93af6f8",
+    "type" : "Text"
+  }, {
+    "x" : 168,
+    "y" : 574,
+    "bredde" : 1036,
+    "hoyde" : 98,
+    "navn" : "tittel.etternavn",
+    "id" : "372f2a16-17a9-4e39-bcd2-73c104a029e9",
+    "type" : "Text"
+  }, {
+    "x" : 2252,
+    "y" : 574,
+    "bredde" : 845,
+    "hoyde" : 94,
+    "navn" : "tittel.fnr",
+    "id" : "41c73496-c7e2-48f6-b731-12a47de80508",
+    "type" : "Ident"
+  } ],
+  "templateBilde" : "template.png",
+  "gridSettings" : {
+    "minimumLineLength" : 40,
+    "gapSize" : 3,
+    "minimumCellSize" : 12,
+    "inkThreshold" : 225
+  },
+  "gridEdits" : [ {
+    "tool" : "Cell border",
+    "x1" : 1517,
+    "y1" : 3206,
+    "x2" : 2139,
+    "y2" : 3357
+  }, {
+    "tool" : "Horizontal line",
+    "x1" : 165,
+    "y1" : 573,
+    "x2" : 3100,
+    "y2" : 573
+  } ]
+}
