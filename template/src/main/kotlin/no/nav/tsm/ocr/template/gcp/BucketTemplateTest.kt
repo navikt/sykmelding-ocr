@@ -6,15 +6,17 @@ import no.nav.tsm.ocr.template.testing.png
 import no.nav.tsm.ocr.template.testing.previewScale
 import no.nav.tsm.ocr.template.testing.resized
 import no.nav.tsm.sykmelding.model.CheckboxState
+import no.nav.tsm.sykmelding.model.OcrParserSykmelding
 import no.nav.tsm.sykmelding.ocr.CHECKBOX_RULE
 import no.nav.tsm.sykmelding.ocr.CheckboxReading
 import no.nav.tsm.sykmelding.ocr.FieldText
 import no.nav.tsm.sykmelding.ocr.FieldSegment
 import no.nav.tsm.sykmelding.ocr.Ocr
+import no.nav.tsm.sykmelding.ocr.OcrResult
 import no.nav.tsm.sykmelding.ocr.PageRead
+import no.nav.tsm.sykmelding.ocr.ParseSykmeldingOcr
 import no.nav.tsm.sykmelding.ocr.TESSERACT_RESOLUTIONS
 import no.nav.tsm.sykmelding.ocr.TextRegion
-import no.nav.tsm.sykmelding.ocr.readPage
 import no.nav.tsm.sykmelding.ocr.skipsOcr
 import no.nav.tsm.sykmelding.template.MatchingMethods
 import no.nav.tsm.sykmelding.template.TemplateMatchResult
@@ -223,6 +225,7 @@ internal class PdfTestResult(
     val ocrMillis: Long = 0,
     val ocrError: String? = null,
     val settings: TestSettings? = null,
+    val sykmelding: OcrParserSykmelding? = null,
 ) {
     val ocr: List<OcrFields>? get() = reads?.map { it.values }
     val checkboxes: List<Map<Felter, CheckboxReading>>? get() = reads?.map { it.checkboxes }
@@ -301,7 +304,7 @@ internal fun pageCount(file: File): Int = PdfTemplateImages.pageCount(file)
 /**
  * Matches [file] with [prepared]'s matcher, exactly as production does: the file matches a template when every page
  * of the template is found among its pages. Each found template page gets a preview of the aligned page, and its
- * fields are read with lib's OCR right away ([readPage]) at [ocrDpi], while the aligned pages are still in memory
+ * fields are read with lib's [ParseSykmeldingOcr.doOcr] right away at [ocrDpi], while the aligned pages are still in memory
  * (they are dropped afterwards; [reading] is called just before). The result says how it was tested: the matcher's
  * resolutions and methods, and [ocrDpi]. Never throws: an unreadable file becomes [PdfStatus.ERROR], and a match whose fields
  * could not be read stays [PdfStatus.MATCHED] with the error in its message.
@@ -319,13 +322,12 @@ internal fun testAgainstTemplates(file: File, prepared: PreparedMatcher, ocrDpi:
             val outcomes = result.templateMatch.entries.mapIndexed { index, (template, aligned) -> outcome(result.template, index, template, aligned, prepared.previews) }
             reading()
             val ocrStarted = System.nanoTime()
-            val reads = runCatching {
-                val ocr = Ocr()
-                result.templateMatch.map { (template, aligned) -> ocr.readPage(aligned, template.felter, ocrDpi) }
-            }
+            val parsed = runCatching { ParseSykmeldingOcr(Ocr(), matcher).doOcr(result, ocrDpi) }
+                .getOrElse { OcrResult.Failed(it.message ?: it.toString(), it) }
             val ocrMillis = (System.nanoTime() - ocrStarted) / 1_000_000
-            val error = reads.exceptionOrNull()?.let { "The fields could not be read: ${it.message ?: it}" }
-            PdfTestResult(PdfStatus.MATCHED, error.orEmpty(), pages, outcomes, elapsed(), reads.getOrNull(), ocrMillis, error, settings)
+            val error = (parsed as? OcrResult.Failed)?.let { "The fields could not be read: ${it.reason}" }
+            val ok = parsed as? OcrResult.Parsed
+            PdfTestResult(PdfStatus.MATCHED, error.orEmpty(), pages, outcomes, elapsed(), ok?.pages, ocrMillis, error, settings, ok?.sykmelding)
         }
         TemplateMatchResult.NoMatch -> PdfTestResult(PdfStatus.NO_MATCH, "No template has every one of its pages in this file.", pages, millis = elapsed(), settings = settings)
         is TemplateMatchResult.Error -> PdfTestResult(PdfStatus.ERROR, result.exception.message ?: result.exception.toString(), pages, millis = elapsed(), settings = settings)
