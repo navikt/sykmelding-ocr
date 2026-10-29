@@ -14,11 +14,21 @@ import no.nav.tsm.sykmelding.model.OcrParserSykmelder
 import no.nav.tsm.sykmelding.model.OcrParserSykmelding
 import no.nav.tsm.sykmelding.model.OcrParserTilbakedatering
 import no.nav.tsm.sykmelding.model.OcrParserTilleggsinformasjon
+import no.nav.tsm.sykmelding.template.PdfTemplateImages
 import no.nav.tsm.sykmelding.template.TemplateMatchResult
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import no.nav.tsm.sykmelding.template.Felter
 import org.slf4j.LoggerFactory
 import java.io.File
+
+/** What [ParseSykmeldingOcr.doOcr] made of a PDF. It never throws: every way it can fail is a case here. */
+sealed interface OcrResult {
+    /** [pages] are the raw reads the [sykmelding] was mapped from, one per template page. */
+    data class Parsed(val sykmelding: OcrParserSykmelding, val pages: List<PageRead>) : OcrResult
+    data object NoMatch : OcrResult
+    data class TooManyPages(val pages: Int, val maxPages: Int) : OcrResult
+    data class Failed(val reason: String, val cause: Throwable? = null) : OcrResult
+}
 
 class ParseSykmeldingOcr(
     private val ocr: Ocr,
@@ -27,24 +37,35 @@ class ParseSykmeldingOcr(
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    fun doOcr(pdf: File): OcrParserSykmelding? = parse(templateMatcher.matchPdf(pdf))
+    fun doOcr(pdf: File): OcrResult = doOcr(templateMatcher.matchPdf(pdf))
 
     /** As [doOcr], for a PDF in memory, so it need not be saved first. */
-    fun doOcr(pdf: ByteArray): OcrParserSykmelding? = parse(templateMatcher.matchPdf(pdf))
+    fun doOcr(pdf: ByteArray): OcrResult = doOcr(templateMatcher.matchPdf(pdf))
 
-    private fun parse(match: TemplateMatchResult): OcrParserSykmelding? {
-        val sykmeldingTemplate = requireMatch(match)
-        if (sykmeldingTemplate !is TemplateMatchResult.Matched) {
-            return null
+    /** As [doOcr], for a PDF already matched, with its fields read at [ocrDpi]. */
+    fun doOcr(match: TemplateMatchResult, ocrDpi: Int = PdfTemplateImages.DPI): OcrResult = when (match) {
+        is TemplateMatchResult.Matched -> try {
+            parse(match, ocrDpi)
+        } catch (e: Exception) {
+            logger.warn("Could not read the PDF with template ${match.template.manifest.navn}", e)
+            OcrResult.Failed(e.message ?: e.toString(), e)
         }
-        val pages = readPages(sykmeldingTemplate, sykmeldingTemplate.template.manifest.navn)
+        TemplateMatchResult.NoMatch -> OcrResult.NoMatch
+        is TemplateMatchResult.TooManyPages -> OcrResult.TooManyPages(match.pages, match.maxPages)
+        is TemplateMatchResult.Error -> OcrResult.Failed(match.exception.message ?: match.exception.toString(), match.exception)
+    }
+
+    private fun parse(sykmeldingTemplate: TemplateMatchResult.Matched, ocrDpi: Int): OcrResult {
+        val pages = readPages(sykmeldingTemplate, sykmeldingTemplate.template.manifest.navn, ocrDpi)
 
         val checkboxReadings = byFieldName(pages.map { it.checkboxes })
         checkboxReadings.filterValues { it.state == CheckboxState.UNCERTAIN }.takeIf { it.isNotEmpty() }?.let { uncertain ->
             logger.warn("Uncertain checkboxes in template ${sykmeldingTemplate.template.manifest.navn}: " +
                 uncertain.entries.joinToString { (name, reading) -> "$name (${reading.coverageText})" })
         }
-        return SykmeldingOcrMapping.map(sykmeldingTemplate.template.manifest.navn, pages)
+        val sykmelding = SykmeldingOcrMapping.map(sykmeldingTemplate.template.manifest.navn, pages)
+            ?: return OcrResult.Failed("No parser for template ${sykmeldingTemplate.template.manifest.navn}")
+        return OcrResult.Parsed(sykmelding, pages)
     }
 
     internal fun mapThreePage2019Activities(
@@ -52,23 +73,14 @@ class ParseSykmeldingOcr(
         checkboxes: Map<String, CheckboxState>,
     ): List<OcrParserAktivitet> = SykmeldingOcrMapping.mapThreePage2019Activities(valuesByName, checkboxes)
 
-    private fun requireMatch(sykmeldingTemplate: TemplateMatchResult): TemplateMatchResult {
-        if (sykmeldingTemplate !is TemplateMatchResult.Matched) {
-            throw IllegalArgumentException(
-                "No template matched for the given PDF: $sykmeldingTemplate",
-                (sykmeldingTemplate as? TemplateMatchResult.Error)?.exception,
-            )
-        }
-        return sykmeldingTemplate
-    }
-
     private fun readPages(
         sykmeldingTemplate: TemplateMatchResult.Matched,
-        templateVersion: String
+        templateVersion: String,
+        ocrDpi: Int,
     ): List<PageRead> = sykmeldingTemplate.templateMatch.map { (template, image) ->
         logger.info("template: $templateVersion, page: ${template.navn}")
         when (templateVersion) {
-            "03.2019", "0.2019" -> ocr.readPage(image, template.felter)
+            "03.2019", "0.2019" -> ocr.readPage(image, template.felter, ocrDpi)
             else -> throw IllegalArgumentException("No parser available for template: $templateVersion")
         }
     }

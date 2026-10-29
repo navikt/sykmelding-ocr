@@ -5,7 +5,8 @@ Bibliotek for OCR parsing av papirsykmeldinger
 
 ```kotlin
 val parser = ParseSykmeldingOcr(Ocr(), TemplateMatcher()) // create once: it reads every template
-val sykmelding = parser.doOcr(pdfBytes)                     // the PDF in memory; doOcr(File) also works
+val result = parser.doOcr(pdfBytes)                         // the PDF in memory; doOcr(File) also works
+// never throws: OcrResult.Parsed(sykmelding, pages), NoMatch, TooManyPages(pages, maxPages) or Failed(reason, cause)
 ```
 
 The lib needs Java 25 and a writable `java.io.tmpdir` (`/tmp` by default). On first use it copies the templates, the

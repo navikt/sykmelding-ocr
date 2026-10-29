@@ -4,7 +4,7 @@
 [versions]
 junit-jupiter-engine = "6.0.1"
 tesseract-version = "5.5.3-1.5.14"
-tsm-opencv = "0.0.1"
+tsm-opencv = "0.0.2"
 jackson = "3.2.2"
 google-cloud-storage = "2.75.0"
 pdfbox = "3.0.8"

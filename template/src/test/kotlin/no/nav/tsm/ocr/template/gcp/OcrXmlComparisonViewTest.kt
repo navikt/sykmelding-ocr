@@ -2,6 +2,7 @@ package no.nav.tsm.ocr.template.gcp
 
 import no.nav.tsm.sykmelding.ocr.FieldText
 import no.nav.tsm.sykmelding.ocr.PageRead
+import no.nav.tsm.sykmelding.ocr.SykmeldingOcrMapping
 import no.nav.tsm.sykmelding.ocr.TextRegion
 import no.nav.tsm.sykmelding.template.Felter
 import no.nav.tsm.sykmelding.template.Template
@@ -49,7 +50,8 @@ class OcrXmlComparisonViewTest {
                     Template("", "", emptyList(), ""))
                 val field = Felter(0, 0, 1, 1, "pasient.fnr", "fnr")
                 val read = PageRead(emptyList(), mapOf(field to FieldText(listOf(TextRegion(0, 0, 1, 1, "01010112345", 99f)))))
-                set("shownResult", PdfTestResult(PdfStatus.MATCHED, outcomes = listOf(TemplateOutcome(page, null, 1.0)), reads = listOf(read)))
+                set("shownResult", PdfTestResult(PdfStatus.MATCHED, outcomes = listOf(TemplateOutcome(page, null, 1.0)), reads = listOf(read),
+                    sykmelding = SykmeldingOcrMapping.map("03.2019", listOf(read))))
                 refresh()
                 assertFalse(button.isEnabled)
                 set("comparisonXml", XmlContent.of("""

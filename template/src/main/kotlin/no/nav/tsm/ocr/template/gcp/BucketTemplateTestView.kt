@@ -10,7 +10,6 @@ import no.nav.tsm.ocr.template.view.splitPane
 import no.nav.tsm.sykmelding.model.CheckboxState
 import no.nav.tsm.sykmelding.ocr.CheckboxReading
 import no.nav.tsm.sykmelding.ocr.FieldSegment
-import no.nav.tsm.sykmelding.ocr.SykmeldingOcrMapping
 import no.nav.tsm.sykmelding.ocr.skipsOcr
 import no.nav.tsm.sykmelding.template.HomographyMethod
 import no.nav.tsm.sykmelding.template.KeypointDetector
@@ -968,9 +967,7 @@ class BucketTemplateTestView(
         val content = comparisonXml
         val document = content?.document
         val mapped = try {
-            if (result?.status == PdfStatus.MATCHED && result.reads != null) {
-                SykmeldingOcrMapping.map(result.outcomes.first().template.group, result.reads)
-            } else null
+            if (result?.status == PdfStatus.MATCHED) result.sykmelding else null
         } catch (error: Exception) {
             finalOcrText = "Could not map the final OCR output: ${error.message ?: error}"
             xmlBesideOcr.showFinalOcr(finalOcrText)

@@ -4,6 +4,7 @@ import no.nav.tsm.sykmelding.model.CheckboxState.CHECKED
 import no.nav.tsm.sykmelding.model.CheckboxState.UNCHECKED
 import no.nav.tsm.sykmelding.model.OcrParserAktivitet
 import no.nav.tsm.sykmelding.ocr.Ocr
+import no.nav.tsm.sykmelding.ocr.OcrResult
 import no.nav.tsm.sykmelding.ocr.ParseSykmeldingOcr
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import org.junit.jupiter.api.Tag
@@ -22,7 +23,7 @@ class ParseSykmeldingOcrTest {
         val pdf = requireNotNull(javaClass.getResourceAsStream("/test.pdf")) { "Missing test PDF: /test.pdf" }.use { it.readBytes() }
 
         TemplateMatcher().use { matcher ->
-            val result = assertNotNull(ParseSykmeldingOcr(Ocr(), matcher).doOcr(pdf))
+            val result = assertIs<OcrResult.Parsed>(ParseSykmeldingOcr(Ocr(), matcher).doOcr(pdf)).sykmelding
             val pasient = assertNotNull(result.pasient)
             val diagnose = assertNotNull(result.diagnose)
             val aktiviteter = assertNotNull(result.aktiviteter)
