@@ -1,181 +1,147 @@
 package no.nav.tsm.sykmelding.model
 
+import no.nav.tsm.diagnoser.Diagnose
+import java.time.LocalDate
+
 data class OcrParserSykmelding(
-    val formType: String?,
-    val formVersion: String?,
-    val vurderingType: OcrParserVurderingType?,
-    val legemeldtFravaerStart: String?,
-    val pasient: OcrParserPasient?,
-    val arbeidsgiver: OcrParserArbeidsgiver?,
-    val diagnose: OcrParserDiagnose?,
-    val aktiviteter: List<OcrParserAktivitet>?,
-    val prognose: OcrParserPrognose?,
-    val bedreArbeidsevne: OcrParserBedreArbeidsevne?,
-    val meldingTilArbeidsgiver: OcrParsedMeldingTilArbeidsgiver?,
-    val tilleggsinformasjon: OcrParserTilleggsinformasjon?,
-    val tilbakedatering: OcrParserTilbakedatering?,
-    val sykmelder: OcrParserSykmelder?,
-    val meta: OcrParserSykmeldingMeta?,
+    val templateVersion: String,
+    val syketilfelletStartDato: OcrValue<LocalDate>?,
+    val pasient: OcrParserPasient,
+    val arbeidsgiver: OcrParserArbeidsgiver,
+    val medisinskVurdering: OcrParserMedisinskVurdering,
+    val aktivitet: List<OcrParserAktivitet>,
+    val prognose: OcrParserPrognose,
+    val tiltak: OcrParserTiltak,
+    val bistandNav: OcrParserBistandNav,
+    val meldingTilArbeidsgiver: String?,
+    val tilbakedatering: OcrParserTilbakedatering,
+    val behandler: OcrParserBehandler,
 )
 
-
-data class OcrParserSykmeldingMeta(
-    val formId: String?,
-    val formVersion: String?,
-    val parserId: String,
-    val warnings: List<String> = emptyList(),
-)
-
-/**
- * A checkbox as read from the form. [UNCERTAIN] is a faint or partial mark, or a box that could not be read: the
- * consumer must decide what it means (e.g. manual review). It is never turned into [UNCHECKED] by the lib.
- */
 enum class CheckboxState { CHECKED, UNCHECKED, UNCERTAIN }
 
-enum class OcrParserVurderingType {
-    FORSTE_VURDERING,
-    PAFOLGENDE_VURDERING,
-    PAFOLGENDE_ANNEN_SYKMELDER,
+sealed interface OcrValue<out T> {
+    val text: String
+
+    data class Read<out T>(val value: T, override val text: String) : OcrValue<T>
+    data class Unreadable(override val text: String, val reason: String) : OcrValue<Nothing>
 }
 
-enum class OcrParserAktivitetType {
-    AKTIVITET_IKKE_MULIG,
-    GRADERT,
-    AVVENTENDE,
-    BEHANDLINGSDAGER,
-    REISETILSKUDD,
+fun <T> OcrValue<T>?.valueOrNull(): T? = when (this) {
+    is OcrValue.Read -> value
+    else -> null
+}
+
+data class OcrReading<out T>(val field: String, val page: Int, val value: OcrValue<T>)
+
+data class OcrCrossChecked<out T>(val value: OcrValue<T>?, val readings: List<OcrReading<T>>, val confirmations: Int)
+
+enum class HarArbeidsgiver { EN_ARBEIDSGIVER, FLERE_ARBEIDSGIVERE, INGEN_ARBEIDSGIVER }
+
+enum class LovfestetFravaersgrunn(val bokstav: Char) {
+    GODKJENT_HELSEINSTITUSJON('a'),
+    BEHANDLING_FORHINDRER_ARBEID('b'),
+    ARBEIDSRETTET_TILTAK('c'),
+    MOTTAR_TILSKUDD_GRUNNET_HELSETILSTAND('d'),
+    NODVENDIG_KONTROLLUNDENRSOKELSE('e'),
+    SMITTEFARE('f'),
+    ABORT('g'),
+    UFOR_GRUNNET_BARNLOSHET('h'),
+    DONOR('i'),
+    BEHANDLING_STERILISERING('j');
+
+    companion object {
+        /**
+         * The grunn whose letter [tekst] starts with when a `)` follows it, e.g. "b) Under behandling" or "b )"; empty
+         * otherwise. The field is too small for the whole text of the grunn, so the letter is what tells them apart.
+         */
+        fun fraTekst(tekst: String): List<LovfestetFravaersgrunn> {
+            val trimmed = tekst.trim()
+            if (trimmed.length < 2 || !trimmed.substring(1).trimStart().startsWith(')')) return emptyList()
+            val bokstav = trimmed[0].lowercaseChar()
+            return entries.filter { it.bokstav == bokstav }
+        }
+    }
 }
 
 data class OcrParserPasient(
-    val navn: String? = null,
-    val etternavn: String? = null,
-    val fornavn: String? = null,
-    val fnr: String? = null,
-    val telefon: String? = null,
-    val adresse: String? = null,
-    val postnrSted: String? = null,
-    val fastlege: String? = null,
-    val navKontor: String? = null,
+    val fnr: OcrCrossChecked<String>,
+    val fornavn: OcrCrossChecked<String>,
+    val etternavn: OcrCrossChecked<String>,
+    val telefon: OcrValue<String>?,
+    val navnFastlege: String?,
+    val navKontor: String?,
 )
 
 data class OcrParserArbeidsgiver(
-    val navn: String? = null,
-    val yrkeStilling: String? = null,
-    val stillingsprosent: Int? = null,
-    val flereArbeidsgivere: Boolean = false,
-    /** The category as written on the form, e.g. "En arbeidsgiver". */
-    val harArbeidsgiver: String? = null,
+    val harArbeidsgiver: OcrValue<HarArbeidsgiver>?,
+    val navn: String?,
+    val yrkesbetegnelse: String?,
+    val stillingsprosent: OcrValue<Int>?,
 )
 
-data class OcrParserDiagnose(
-    val hoveddiagnoseKodesystem: String? = null,
-    val hoveddiagnoseKode: String? = null,
-    val hoveddiagnoseTekst: String? = null,
-    val bidiagnoser: List<Bidiagnose> = emptyList(),
-    val lovfestetFraversgrunn: String? = null,
-    val fraversgrunnBeskrivelse: String? = null,
-    val svangerskap: CheckboxState = CheckboxState.UNCERTAIN,
-    val yrkesskade: CheckboxState = CheckboxState.UNCERTAIN,
-    val skadedato: String? = null,
-    val skjermingPaakrevet: CheckboxState = CheckboxState.UNCERTAIN,
+data class OcrParserMedisinskVurdering(
+    val hovedDiagnose: OcrParserDiagnose?,
+    val biDiagnoser: List<OcrParserDiagnose>,
+    val annenFraversArsak: OcrParserAnnenFraversArsak?,
+    val svangerskap: CheckboxState,
+    val yrkesskade: CheckboxState,
+    val yrkesskadeDato: OcrValue<LocalDate>?,
+    val skjermetForPasient: CheckboxState,
 )
 
-data class Bidiagnose(
-    val kodesystem: String? = null,
-    val kode: String? = null,
-    val tekst: String? = null,
-)
+data class OcrParserDiagnose(val diagnose: OcrValue<Diagnose>?, val system: String?, val tekst: String?)
+
+data class OcrParserAnnenFraversArsak(val arsak: List<LovfestetFravaersgrunn>, val tekst: String?, val beskrivelse: String?)
 
 sealed interface OcrParserAktivitet {
-    val fom: String?
-    val tom: String?
-    val type: OcrParserAktivitetType
-
-    data class IkkeMulig(
-        override val fom: String? = null,
-        override val tom: String? = null,
-        val medisinskArsak: CheckboxState = CheckboxState.UNCERTAIN,
-        val medisinskArsakType: String? = null,
-        val medisinskArsakBeskrivelse: String? = null,
-        val arbeidsrelatertArsak: CheckboxState = CheckboxState.UNCERTAIN,
-    ) : OcrParserAktivitet {
-        override val type: OcrParserAktivitetType
-            get() = OcrParserAktivitetType.AKTIVITET_IKKE_MULIG
-    }
-
-
-    data class Gradert(
-        override val fom: String? = null,
-        override val tom: String? = null,
-        val grad: Int? = null,
-        val reisetilskudd: CheckboxState = CheckboxState.UNCERTAIN,
-    ) : OcrParserAktivitet {
-        override val type: OcrParserAktivitetType
-            get() = OcrParserAktivitetType.GRADERT
-    }
+    val fom: OcrValue<LocalDate>?
+    val tom: OcrValue<LocalDate>?
 
     data class Avventende(
-        override val fom: String? = null,
-        override val tom: String? = null,
-        val innspillTilArbeidsgiver: String? = null,
-    ) : OcrParserAktivitet {
-        override val type: OcrParserAktivitetType
-            get() = OcrParserAktivitetType.AVVENTENDE
-    }
+        override val fom: OcrValue<LocalDate>?,
+        override val tom: OcrValue<LocalDate>?,
+        val innspillTilArbeidsgiver: String?,
+    ) : OcrParserAktivitet
 
-    enum class Arbeidsgiver(
-        val value: String
-    ) {
-        EN_ARBEIDSGIVER("En arbeisgiver"),
-        FLERE_ARBEIDSGIVERE("Flere arbeidsgivere"), // må sjekke
-        INGEN_ARBEIDSGIVERE("Ingen arbeidsgiver"), // må sjekke
-    }
+    data class Gradert(
+        override val fom: OcrValue<LocalDate>?,
+        override val tom: OcrValue<LocalDate>?,
+        val grad: OcrValue<Int>?,
+        val reisetilskudd: CheckboxState,
+    ) : OcrParserAktivitet
+
+    data class IkkeMulig(
+        override val fom: OcrValue<LocalDate>?,
+        override val tom: OcrValue<LocalDate>?,
+        val medisinskArsak: CheckboxState,
+        val arbeidsrelatertArsak: CheckboxState,
+    ) : OcrParserAktivitet
 
     data class Behandlingsdager(
-        override val fom: String? = null,
-        override val tom: String? = null,
-        val antallBehandlingsdager: Int? = null,
-    ) : OcrParserAktivitet {
-        override val type: OcrParserAktivitetType
-            get() = OcrParserAktivitetType.BEHANDLINGSDAGER
-    }
+        override val fom: OcrValue<LocalDate>?,
+        override val tom: OcrValue<LocalDate>?,
+        val antallBehandlingsdager: OcrValue<Int>?,
+    ) : OcrParserAktivitet
 
-    data class Reisetilskudd(override val fom: String? = null, override val tom: String? = null) :
-        OcrParserAktivitet {
-        override val type: OcrParserAktivitetType
-            get() = OcrParserAktivitetType.REISETILSKUDD
-    }
+    data class Reisetilskudd(
+        override val fom: OcrValue<LocalDate>?,
+        override val tom: OcrValue<LocalDate>?,
+    ) : OcrParserAktivitet
 }
 
-data class OcrParserPrognose(
-    val arbeidsforEtterPeriode: CheckboxState = CheckboxState.UNCERTAIN,
-    val beskrivHensyn : String? = null,
-    )
+data class OcrParserPrognose(val arbeidsforEtterPeriode: CheckboxState, val hensynArbeidsplassen: String?)
 
-data class OcrParserBedreArbeidsevne (
-    val tilleggsinformasjonForArbeidsgiver: String? = null,
-    val tiltakIRegiAvNav : String? = null,
-    val eventuelleAndreInnspillTilNav : String? = null,
-)
+data class OcrParserTiltak(val tiltakArbeidsplassen: String?, val tiltakNav: String?, val andreTiltak: String?)
 
-data class OcrParserTilleggsinformasjon(
-    val bistandNavOnskes: CheckboxState = CheckboxState.UNCERTAIN,
-    val beskrivBistandOnskes: String? = null,
-)
+data class OcrParserBistandNav(val bistandUmiddelbart: CheckboxState, val beskrivBistand: String?)
 
-data class OcrParsedMeldingTilArbeidsgiver(
-    val innspillTilArbeidsgiver: String?,
-)
+data class OcrParserTilbakedatering(val kontaktDato: OcrValue<LocalDate>?, val begrunnelse: String?)
 
-data class OcrParserTilbakedatering(
-    val kontaktDato: String? = null,
-    val begrunnelse: String? = null,
-)
-
-data class OcrParserSykmelder(
-    val dato: String? = null,
-    val navn: String? = null,
-    val hprNummer: String? = null,
-    val adresse: String? = null,
-    val telefon: String? = null,
+data class OcrParserBehandler(
+    val navn: String?,
+    val hpr: OcrValue<String>?,
+    val telefon: OcrValue<String>?,
+    val adresse: String?,
+    val behandletDato: OcrValue<LocalDate>?,
 )

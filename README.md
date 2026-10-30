@@ -9,6 +9,15 @@ val result = parser.doOcr(pdfBytes)                         // the PDF in memory
 // never throws: OcrResult.Parsed(sykmelding, pages), NoMatch, TooManyPages(pages, maxPages) or Failed(reason, cause)
 ```
 
+`OcrResult.Parsed.sykmelding` is an `OcrParserSykmelding`. Its property names follow tsm-sykmelding-input's
+`Sykmelding.Papir`, and its nesting follows the paper form. A typed field holds an `OcrValue`: `Read(value, text)` when
+its text gives a valid value, `Unreadable(text, reason)` when it doesn't, and null when the field is blank. The lib
+never turns an unreadable value into an empty one and never picks between readings that disagree, so you decide what
+`Unreadable` means for your service. The fnr and the patient's names also appear in each page's title:
+`OcrCrossChecked` holds all the readings and `confirmations`, the number that agree with its value. The lib looks
+diagnosis codes up in the ICD-10 and ICPC-2 lists of `no.nav.tsm:diagnoser`, which it exposes as an `api` dependency;
+an ICPC-2B code comes back `Unreadable`.
+
 The lib needs Java 25 and a writable `java.io.tmpdir` (`/tmp` by default). On first use it copies the templates, the
 OCR model and OpenCV's native library there, since they must be files, and JavaCPP extracts Tesseract's native
 libraries to `~/.javacpp/cache`, or to `java.io.tmpdir` when the home folder is not writable. The PDF itself is not

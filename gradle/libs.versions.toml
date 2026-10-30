@@ -11,6 +11,7 @@ pdfbox = "3.0.8"
 logback = "1.6.5"
 papirsykemelding = "2.0.1"
 jaxb-api = "2.3.0"
+tsm-diagnoser = "2026.8.25"
 
 [libraries]
 jackson-module-kotlin = { module = "tools.jackson.module:jackson-module-kotlin", version.ref = "jackson"}
@@ -22,6 +23,7 @@ google-cloud-storage = { module = "com.google.cloud:google-cloud-storage", versi
 pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox"}
 papirsykemelding = { module = "no.nav.helse.xml:papirsykemelding", version.ref = "papirsykemelding" }
 jaxb-api = { module = "javax.xml.bind:jaxb-api", version.ref = "jaxb-api" }
+tsm-diagnoser = { module = "no.nav.tsm:diagnoser", version.ref = "tsm-diagnoser" }
 # Monitoring and observability
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 
