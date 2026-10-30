@@ -13,8 +13,10 @@ import no.nav.tsm.sykmelding.model.valueOrNull
 import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class FieldValuesTest {
     private val today = LocalDate.of(2026, 10, 29)
@@ -139,6 +141,12 @@ class FieldValuesTest {
         listOf(
             "Under behandling", "b", "b: Under behandling", "(b) tekst", "a, b", "Behandling", "k) ikke en bokstav i loven", "",
         ).forEach { assertEquals(emptyList(), LovfestetFravaersgrunn.fraTekst(it), it) }
+    }
+
+    @Test
+    fun `only ICD-10 and ICPC-2 are diagnosis systems`() {
+        listOf("ICD-10", "ICD 10", "icpc-2", "ICPC2").forEach { assertTrue(isDiagnoseSystem(it), it) }
+        listOf(null, "", "Velg", "Velg...", "Velg…", "ICPC-2B").forEach { assertFalse(isDiagnoseSystem(it), it) }
     }
 
     @Test
