@@ -148,9 +148,9 @@ object SykmeldingOcrMapping {
 
         fun diagnose(prefix: String): OcrParserDiagnose? {
             val system = text("$prefix.system")
+            if (!isDiagnoseSystem(system)) return null
             val kode = text("$prefix.kode")
             val tekst = text("$prefix.text")
-            if (system == null && kode == null && tekst == null) return null
             return OcrParserDiagnose(kode?.let { resolveDiagnose(system, it, tekst) }, system, tekst)
         }
 

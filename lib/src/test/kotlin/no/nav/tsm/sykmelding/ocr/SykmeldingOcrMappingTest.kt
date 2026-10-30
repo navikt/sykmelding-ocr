@@ -98,10 +98,8 @@ class SykmeldingOcrMappingTest {
             ),
             hoved,
         )
-        assertEquals(
-            listOf(OcrParserDiagnose(OcrValue.Unreadable("L84", "in both ICD-10 and ICPC-2"), null, "Vondt i ryggen")),
-            mapped.medisinskVurdering.biDiagnoser,
-        )
+
+        assertEquals(emptyList(), mapped.medisinskVurdering.biDiagnoser)
         assertEquals(
             OcrParserAnnenFraversArsak(listOf(LovfestetFravaersgrunn.BEHANDLING_FORHINDRER_ARBEID), "b) Under behandling", null),
             mapped.medisinskVurdering.annenFraversArsak,

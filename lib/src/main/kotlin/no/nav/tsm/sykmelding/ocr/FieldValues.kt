@@ -148,6 +148,9 @@ internal fun parseName(text: String?): OcrValue<String>? {
     return OcrValue.Read(trimmed.replace(WHITESPACE, " "), trimmed)
 }
 
+internal fun isDiagnoseSystem(system: String?): Boolean =
+    system?.filterNot { it == '.' || it == '-' || it.isWhitespace() }?.uppercase() in setOf("ICD10", "ICPC2")
+
 /**
  * The diagnosis [kode] names in tsm-diagnoser's ICD-10 or ICPC-2 list. [kode] is the field's trimmed, non-blank text.
  * The written [system] picks the list. Without a known system, the code must be in one list only, or [tekst] must be

@@ -61,7 +61,8 @@ class OcrXmlComparisonTest {
     @Test
     fun `reports missing different extra and uncertain values without counting empty pairs`() {
         val mapped = assertNotNull(mapped(mapOf(
-            "pasient.fnr" to "30898098466", "pasient.fornavn" to "Example", "hoveddiagnose.kode" to "R74",
+            "pasient.fnr" to "30898098466", "pasient.fornavn" to "Example", "hoveddiagnose.system" to "ICPC-2",
+            "hoveddiagnose.kode" to "R74",
         )))
         val rows = compareMappedOcrWithXml(mapped, xml(
             "pasient.fnr" to "01018012371",
@@ -106,15 +107,15 @@ class OcrXmlComparisonTest {
 
     @Test
     fun `single and repeated diagnoses are aligned and additional XML diagnoses are not lost`() {
-        val mapped = assertNotNull(mapped(mapOf("bidiagnose.kode" to "R74")))
+        val mapped = assertNotNull(mapped(mapOf("bidiagnose.system" to "ICPC-2", "bidiagnose.kode" to "R74")))
         val single = compareMappedOcrWithXml(mapped, xml("medisinskVurdering.bidiagnose.diagnosekode" to "R74"))
-        assertEquals(ComparisonStatus.MATCH, single.fields.single { it.path.startsWith("medisinskVurdering") }.status)
+        assertEquals(ComparisonStatus.MATCH, single.fields.single { it.path.endsWith(".diagnosekode") }.status)
         val repeated = compareMappedOcrWithXml(mapped, xml(
             "medisinskVurdering.bidiagnose[1].diagnosekode" to "R74",
             "medisinskVurdering.bidiagnose[2].diagnosekode" to "R05",
         ))
         assertEquals(listOf(ComparisonStatus.MATCH, ComparisonStatus.MISSING_OCR),
-            repeated.fields.filter { it.path.startsWith("medisinskVurdering") }.map { it.status })
+            repeated.fields.filter { it.path.endsWith(".diagnosekode") }.map { it.status })
     }
 
     @Test
@@ -130,8 +131,10 @@ class OcrXmlComparisonTest {
     @Test
     fun `spaces around punctuation in text are normalized`() {
         val mapped = assertNotNull(mapped(mapOf(
+            "hoveddiagnose.system" to "ICPC-2",
             "hoveddiagnose.text" to "Vondt i rygg, nakke og\nskulder",
             "diagnose.fravarsgrunnBeskrivelse" to "a, b",
+            "bidiagnose.system" to "ICPC-2",
             "bidiagnose.text" to "Tennisalbue/lateral epikondylitt",
         )))
         val rows = compareMappedOcrWithXml(mapped, xml(
@@ -192,8 +195,10 @@ class OcrXmlComparisonTest {
     fun `an unreadable OCR value is uncertain and shown as read with why`() {
         val mapped = assertNotNull(mapped(mapOf(
             "pasient.fnr" to "30898098467",
+            "hoveddiagnose.system" to "ICPC-2",
             "hoveddiagnose.kode" to "l-84",
             "hoveddiagnose.text" to "Example\n text",
+            "bidiagnose.system" to "ICPC-2",
             "bidiagnose.text" to "Example",
             "diagnose.yrkesskade.skadedato" to "31.02.2026",
         )))
@@ -206,7 +211,7 @@ class OcrXmlComparisonTest {
         )).fields.associateBy { it.path }
         listOf(
             Triple("pasient.fnr", "30898098467", "Unreadable: wrong control digits"),
-            Triple("medisinskVurdering.hovedDiagnose[1].diagnosekode", "l-84", "Unreadable: not in ICD-10 or ICPC-2"),
+            Triple("medisinskVurdering.hovedDiagnose[1].diagnosekode", "l-84", "Unreadable: not in ICPC-2"),
             Triple("medisinskVurdering.yrkesskadedato", "31.02.2026", "Unreadable: not a date"),
         ).forEach { (path, text, note) ->
             val row = rows.getValue(path)
