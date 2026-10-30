@@ -1,5 +1,7 @@
 package no.nav.tsm.sykmelding.ocr
 
+import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.StatusCode
 import io.opentelemetry.instrumentation.annotations.WithSpan
 import no.nav.tsm.sykmelding.model.CheckboxState
 import no.nav.tsm.sykmelding.model.LovfestetFravaersgrunn
@@ -42,11 +44,25 @@ class ParseSykmeldingOcr(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @WithSpan
-    fun doOcr(pdf: File): OcrResult = doOcr(templateMatcher.matchPdf(pdf))
+    fun doOcr(pdf: File): OcrResult {
+        val span = Span.current()
+
+        span.setAttribute("pdf.path", pdf.absolutePath)
+        span.setAttribute("pdf.size", pdf.length())
+
+        return doOcr(templateMatcher.matchPdf(pdf))
+    }
 
     /** As [doOcr], for a PDF in memory, so it need not be saved first. */
     @WithSpan
-    fun doOcr(pdf: ByteArray): OcrResult = doOcr(templateMatcher.matchPdf(pdf))
+    fun doOcr(pdf: ByteArray): OcrResult {
+        val span = Span.current()
+
+        span.setAttribute("pdf.path", "in-memory")
+        span.setAttribute("pdf.size", pdf.size.toLong())
+
+        return doOcr(templateMatcher.matchPdf(pdf))
+    }
 
     /** As [doOcr], for a PDF already matched, with its fields read at [ocrDpi]. */
     @WithSpan
@@ -57,22 +73,41 @@ class ParseSykmeldingOcr(
             logger.warn("Could not read the PDF with template ${match.template.manifest.navn}", e)
             OcrResult.Failed(e.message ?: e.toString(), e)
         }
+
         TemplateMatchResult.NoMatch -> OcrResult.NoMatch
         is TemplateMatchResult.TooManyPages -> OcrResult.TooManyPages(match.pages, match.maxPages)
-        is TemplateMatchResult.Error -> OcrResult.Failed(match.exception.message ?: match.exception.toString(), match.exception)
+        is TemplateMatchResult.Error -> OcrResult.Failed(
+            match.exception.message ?: match.exception.toString(),
+            match.exception
+        )
     }
 
     @WithSpan
     private fun parse(sykmeldingTemplate: TemplateMatchResult.Matched, ocrDpi: Int): OcrResult {
         val pages = readPages(sykmeldingTemplate, sykmeldingTemplate.template.manifest.navn, ocrDpi)
 
+        val span = Span.current()
+        span.setAttribute("ocr.pages", pages.size.toString())
+        span.setAttribute("ocr.dpi", ocrDpi.toString())
+        span.setAttribute("ocr.template", sykmeldingTemplate.template.manifest.navn)
+
         val checkboxReadings = byFieldName(pages.map { it.checkboxes })
-        checkboxReadings.filterValues { it.state == CheckboxState.UNCERTAIN }.takeIf { it.isNotEmpty() }?.let { uncertain ->
-            logger.warn("Uncertain checkboxes in template ${sykmeldingTemplate.template.manifest.navn}: " +
-                uncertain.entries.joinToString { (name, reading) -> "$name (${reading.coverageText})" })
-        }
+        checkboxReadings.filterValues { it.state == CheckboxState.UNCERTAIN }.takeIf { it.isNotEmpty() }
+            ?.let { uncertain ->
+                logger.warn(
+                    "Uncertain checkboxes in template ${sykmeldingTemplate.template.manifest.navn}: " +
+                            uncertain.entries.joinToString { (name, reading) -> "$name (${reading.coverageText})" })
+            }
         val sykmelding = SykmeldingOcrMapping.map(sykmeldingTemplate.template.manifest.navn, pages)
-            ?: return OcrResult.Failed("No parser for template ${sykmeldingTemplate.template.manifest.navn}")
+        if (sykmelding == null) {
+            span.setStatus(StatusCode.ERROR)
+            span.setAttribute("ocr.error", "No parser for template")
+            return OcrResult.Failed("No parser for template ${sykmeldingTemplate.template.manifest.navn}")
+        }
+
+        span.setAttribute("ocr.parsed", "true")
+        span.setAttribute("ocr.parsed.template", sykmelding.templateVersion)
+
         return OcrResult.Parsed(sykmelding, pages)
     }
 
@@ -95,7 +130,8 @@ object SykmeldingOcrMapping {
     /** [today] decides the century of a two-digit year in the yrkesskade date, the only date that can be long ago. */
     fun map(templateVersion: String, pages: List<PageRead>, today: LocalDate = LocalDate.now()): OcrParserSykmelding? {
         if (templateVersion != "0.2019" && templateVersion != "03.2019") return null
-        val texts = pages.map { page -> page.values.filterKeys { !it.type.skipsOcr }.mapValues { (_, text) -> text.text } }
+        val texts =
+            pages.map { page -> page.values.filterKeys { !it.type.skipsOcr }.mapValues { (_, text) -> text.text } }
         val values = byFieldName(texts)
         val checkboxes = byFieldName(pages.map { page -> page.checkboxes.mapValues { it.value.state } })
         return threePage2019(templateVersion, texts, values, checkboxes, today)
@@ -187,7 +223,15 @@ object SykmeldingOcrMapping {
         parse: (String?) -> OcrValue<String>?,
     ): List<OcrReading<String>> = listOf(form, title).flatMap { name ->
         pages.flatMapIndexed { index, fields ->
-            fields.filterKeys { it.navn == name }.values.mapNotNull { text -> parse(text)?.let { OcrReading(name, index + 1, it) } }
+            fields.filterKeys { it.navn == name }.values.mapNotNull { text ->
+                parse(text)?.let {
+                    OcrReading(
+                        name,
+                        index + 1,
+                        it
+                    )
+                }
+            }
         }
     }
 
@@ -208,7 +252,7 @@ object SykmeldingOcrMapping {
         ): OcrParserAktivitet? {
             val dates = listOf("$prefix.fom", "$prefix.tom")
             val blank = (dates + texts).all { valuesByName[it].isNullOrBlank() } &&
-                boxes.none { checkboxes[it] == CheckboxState.CHECKED || checkboxes[it] == CheckboxState.UNCERTAIN }
+                    boxes.none { checkboxes[it] == CheckboxState.CHECKED || checkboxes[it] == CheckboxState.UNCERTAIN }
             return if (blank) null else aktivitet(parseDate(valuesByName[dates[0]]), parseDate(valuesByName[dates[1]]))
         }
 
@@ -216,20 +260,43 @@ object SykmeldingOcrMapping {
             period("aktivitet.avventende", listOf("aktivitet.innspillArbeidsgiver"), emptyList()) { fom, tom ->
                 OcrParserAktivitet.Avventende(fom, tom, valuesByName["aktivitet.innspillArbeidsgiver"].trimmedOrNull())
             },
-            period("aktivitet.gradert", listOf("aktivitet.gradert.grad"), listOf("aktivitet.gradert.reisetilskudd")) { fom, tom ->
+            period(
+                "aktivitet.gradert",
+                listOf("aktivitet.gradert.grad"),
+                listOf("aktivitet.gradert.reisetilskudd")
+            ) { fom, tom ->
                 OcrParserAktivitet.Gradert(
-                    fom, tom, parsePercent(valuesByName["aktivitet.gradert.grad"]), checkboxes.state("aktivitet.gradert.reisetilskudd"),
+                    fom,
+                    tom,
+                    parsePercent(valuesByName["aktivitet.gradert.grad"]),
+                    checkboxes.state("aktivitet.gradert.reisetilskudd"),
                 )
             },
-            period("aktivitet", emptyList(), listOf("aktivitet.medisinskeArsaker", "aktivitet.forholdArbeidsplassen")) { fom, tom ->
+            period(
+                "aktivitet",
+                emptyList(),
+                listOf("aktivitet.medisinskeArsaker", "aktivitet.forholdArbeidsplassen")
+            ) { fom, tom ->
                 OcrParserAktivitet.IkkeMulig(
-                    fom, tom, checkboxes.state("aktivitet.medisinskeArsaker"), checkboxes.state("aktivitet.forholdArbeidsplassen"),
+                    fom,
+                    tom,
+                    checkboxes.state("aktivitet.medisinskeArsaker"),
+                    checkboxes.state("aktivitet.forholdArbeidsplassen"),
                 )
             },
             period("aktivitet.behandlingsdager", listOf("aktivitet.behandlingsdager.dager"), emptyList()) { fom, tom ->
-                OcrParserAktivitet.Behandlingsdager(fom, tom, parseCount(valuesByName["aktivitet.behandlingsdager.dager"]))
+                OcrParserAktivitet.Behandlingsdager(
+                    fom,
+                    tom,
+                    parseCount(valuesByName["aktivitet.behandlingsdager.dager"])
+                )
             },
-            period("aktivitet.reisetilskudd", emptyList(), emptyList()) { fom, tom -> OcrParserAktivitet.Reisetilskudd(fom, tom) },
+            period("aktivitet.reisetilskudd", emptyList(), emptyList()) { fom, tom ->
+                OcrParserAktivitet.Reisetilskudd(
+                    fom,
+                    tom
+                )
+            },
         )
     }
 }
