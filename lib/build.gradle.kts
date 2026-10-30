@@ -36,6 +36,7 @@ dependencies {
     api(libs.tsm.diagnoser)
 
     implementation(libs.logback.classic)
+    api(libs.otel.annotations)
 
     implementation(libs.jackson.module.kotlin)
 }
