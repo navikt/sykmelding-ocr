@@ -1,5 +1,6 @@
 package no.nav.tsm.sykmelding.ocr
 
+import io.opentelemetry.instrumentation.annotations.WithSpan
 import no.nav.tsm.sykmelding.model.CheckboxState
 import no.nav.tsm.sykmelding.model.LovfestetFravaersgrunn
 import no.nav.tsm.sykmelding.model.OcrParserAktivitet
@@ -40,12 +41,15 @@ class ParseSykmeldingOcr(
 
     private val logger = LoggerFactory.getLogger(javaClass)
 
+    @WithSpan
     fun doOcr(pdf: File): OcrResult = doOcr(templateMatcher.matchPdf(pdf))
 
     /** As [doOcr], for a PDF in memory, so it need not be saved first. */
+    @WithSpan
     fun doOcr(pdf: ByteArray): OcrResult = doOcr(templateMatcher.matchPdf(pdf))
 
     /** As [doOcr], for a PDF already matched, with its fields read at [ocrDpi]. */
+    @WithSpan
     fun doOcr(match: TemplateMatchResult, ocrDpi: Int = PdfTemplateImages.DPI): OcrResult = when (match) {
         is TemplateMatchResult.Matched -> try {
             parse(match, ocrDpi)
@@ -58,6 +62,7 @@ class ParseSykmeldingOcr(
         is TemplateMatchResult.Error -> OcrResult.Failed(match.exception.message ?: match.exception.toString(), match.exception)
     }
 
+    @WithSpan
     private fun parse(sykmeldingTemplate: TemplateMatchResult.Matched, ocrDpi: Int): OcrResult {
         val pages = readPages(sykmeldingTemplate, sykmeldingTemplate.template.manifest.navn, ocrDpi)
 
@@ -71,6 +76,7 @@ class ParseSykmeldingOcr(
         return OcrResult.Parsed(sykmelding, pages)
     }
 
+    @WithSpan
     private fun readPages(
         sykmeldingTemplate: TemplateMatchResult.Matched,
         templateVersion: String,
