@@ -4,14 +4,12 @@ import no.nav.tsm.sykmelding.model.CheckboxState.CHECKED
 import no.nav.tsm.sykmelding.model.CheckboxState.UNCERTAIN
 import no.nav.tsm.sykmelding.model.CheckboxState.UNCHECKED
 import no.nav.tsm.sykmelding.model.OcrParserAktivitet
-import no.nav.tsm.sykmelding.template.TemplateMatcher
-import org.junit.jupiter.api.AfterEach
+import no.nav.tsm.sykmelding.model.OcrValue
+import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ActivityMappingTest {
-    private val matcher = TemplateMatcher(templates = emptyList())
-    private val parser = ParseSykmeldingOcr(Ocr(), matcher)
     private val prefixes = listOf(
         "aktivitet.avventende",
         "aktivitet.gradert",
@@ -21,61 +19,24 @@ class ActivityMappingTest {
     )
     private val fom = "01.10.2026"
     private val tom = "31.10.2026"
-
-    @AfterEach
-    fun closeMatcher() {
-        matcher.close()
-    }
+    private val readFom = OcrValue.Read(LocalDate.of(2026, 10, 1), fom)
+    private val readTom = OcrValue.Read(LocalDate.of(2026, 10, 31), tom)
 
     @Test
-    fun `activities are omitted when either date is missing or blank`() {
-        assertEquals(emptyList(), parser.mapThreePage2019Activities(emptyMap(), emptyMap()))
+    fun `a blank period is left out`() {
+        assertEquals(emptyList(), SykmeldingOcrMapping.mapThreePage2019Activities(emptyMap(), emptyMap()))
 
-        for (missing in listOf(null, "", " \t\n")) {
-            for ((start, end) in listOf(missing to tom, fom to missing, missing to missing)) {
-                assertEquals(
-                    emptyList(),
-                    parser.mapThreePage2019Activities(dateFields(start, end), emptyMap()),
-                    "Expected no activities for fom=$start and tom=$end",
-                )
-            }
+        for (blank in listOf(null, "", " \t\n")) {
+            assertEquals(
+                emptyList(),
+                SykmeldingOcrMapping.mapThreePage2019Activities(dateFields(blank, blank), emptyMap()),
+                "Expected no activities for dates '$blank'",
+            )
         }
     }
 
     @Test
-    fun `complete activities retain their order dates and other properties`() {
-        val fields = dateFields(fom, tom) + mapOf(
-            "aktivitet.gradert.grad" to "50",
-            "aktivitet.behandlingsdager.dager" to "2",
-        )
-        val checkboxes = mapOf(
-            "aktivitet.gradert.reisetilskudd" to CHECKED,
-            "aktivitet.medisinskeArsaker" to UNCHECKED,
-            "aktivitet.forholdArbeidsplassen" to UNCERTAIN,
-        )
-
-        assertEquals(
-            listOf(
-                OcrParserAktivitet.Avventende(fom, tom),
-                OcrParserAktivitet.Gradert(fom, tom, grad = 50, reisetilskudd = CHECKED),
-                OcrParserAktivitet.IkkeMulig(fom, tom, medisinskArsak = UNCHECKED, arbeidsrelatertArsak = UNCERTAIN),
-                OcrParserAktivitet.Behandlingsdager(fom, tom, antallBehandlingsdager = 2),
-                OcrParserAktivitet.Reisetilskudd(fom, tom),
-            ),
-            parser.mapThreePage2019Activities(fields, checkboxes),
-        )
-    }
-
-    @Test
-    fun `a checkbox that was not read is uncertain, never unchecked`() {
-        val activities = parser.mapThreePage2019Activities(dateFields(fom, tom), emptyMap())
-
-        assertEquals(OcrParserAktivitet.Gradert(fom, tom, reisetilskudd = UNCERTAIN), activities[1])
-        assertEquals(OcrParserAktivitet.IkkeMulig(fom, tom, medisinskArsak = UNCERTAIN, arbeidsrelatertArsak = UNCERTAIN), activities[2])
-    }
-
-    @Test
-    fun `only complete activities are kept when periods are mixed`() {
+    fun `a period that is not blank is kept with its blank dates null`() {
         val fields = mapOf(
             "aktivitet.avventende.fom" to fom,
             "aktivitet.gradert.fom" to fom,
@@ -89,10 +50,65 @@ class ActivityMappingTest {
 
         assertEquals(
             listOf(
-                OcrParserAktivitet.Gradert(fom, tom),
-                OcrParserAktivitet.Reisetilskudd(fom, tom),
+                OcrParserAktivitet.Avventende(readFom, null, null),
+                OcrParserAktivitet.Gradert(readFom, readTom, null, UNCERTAIN),
+                OcrParserAktivitet.IkkeMulig(null, readTom, UNCERTAIN, UNCERTAIN),
+                OcrParserAktivitet.Behandlingsdager(readFom, null, null),
+                OcrParserAktivitet.Reisetilskudd(readFom, readTom),
             ),
-            parser.mapThreePage2019Activities(fields, emptyMap()),
+            SykmeldingOcrMapping.mapThreePage2019Activities(fields, emptyMap()),
+        )
+    }
+
+    @Test
+    fun `complete activities keep their order dates and other properties`() {
+        val fields = dateFields(fom, tom) + mapOf(
+            "aktivitet.gradert.grad" to "50",
+            "aktivitet.behandlingsdager.dager" to "2",
+        )
+        val checkboxes = mapOf(
+            "aktivitet.gradert.reisetilskudd" to CHECKED,
+            "aktivitet.medisinskeArsaker" to UNCHECKED,
+            "aktivitet.forholdArbeidsplassen" to UNCERTAIN,
+        )
+
+        assertEquals(
+            listOf(
+                OcrParserAktivitet.Avventende(readFom, readTom, null),
+                OcrParserAktivitet.Gradert(readFom, readTom, OcrValue.Read(50, "50"), CHECKED),
+                OcrParserAktivitet.IkkeMulig(readFom, readTom, UNCHECKED, UNCERTAIN),
+                OcrParserAktivitet.Behandlingsdager(readFom, readTom, OcrValue.Read(2, "2")),
+                OcrParserAktivitet.Reisetilskudd(readFom, readTom),
+            ),
+            SykmeldingOcrMapping.mapThreePage2019Activities(fields, checkboxes),
+        )
+    }
+
+    @Test
+    fun `a checkbox that was not read is uncertain, never unchecked`() {
+        val activities = SykmeldingOcrMapping.mapThreePage2019Activities(dateFields(fom, tom), emptyMap())
+
+        assertEquals(OcrParserAktivitet.Gradert(readFom, readTom, null, UNCERTAIN), activities[1])
+        assertEquals(OcrParserAktivitet.IkkeMulig(readFom, readTom, UNCERTAIN, UNCERTAIN), activities[2])
+    }
+
+    @Test
+    fun `an uncertain box alone keeps an otherwise blank period, an unchecked one does not`() {
+        assertEquals(
+            listOf(OcrParserAktivitet.Gradert(null, null, null, UNCERTAIN)),
+            SykmeldingOcrMapping.mapThreePage2019Activities(emptyMap(), mapOf("aktivitet.gradert.reisetilskudd" to UNCERTAIN)),
+        )
+        assertEquals(
+            emptyList(),
+            SykmeldingOcrMapping.mapThreePage2019Activities(emptyMap(), mapOf("aktivitet.medisinskeArsaker" to UNCHECKED)),
+        )
+    }
+
+    @Test
+    fun `a period with an unreadable date is kept with the date unreadable`() {
+        assertEquals(
+            listOf(OcrParserAktivitet.IkkeMulig(OcrValue.Unreadable("31.02.2026", "not a date"), readTom, UNCERTAIN, UNCERTAIN)),
+            SykmeldingOcrMapping.mapThreePage2019Activities(mapOf("aktivitet.fom" to "31.02.2026", "aktivitet.tom" to tom), emptyMap()),
         )
     }
 

@@ -33,6 +33,7 @@ dependencies {
     implementation(libs.bytedeco.tesseract)
     implementation(libs.bytedeco.tesseract.platform)
     implementation(libs.tsm.opencv)
+    api(libs.tsm.diagnoser)
 
     implementation(libs.logback.classic)
 

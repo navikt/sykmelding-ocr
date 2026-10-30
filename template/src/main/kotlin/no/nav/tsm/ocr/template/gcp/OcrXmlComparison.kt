@@ -2,12 +2,15 @@ package no.nav.tsm.ocr.template.gcp
 
 import no.nav.helse.papirsykemelding.SykemeldingerType
 import no.nav.tsm.sykmelding.model.CheckboxState
+import no.nav.tsm.sykmelding.model.HarArbeidsgiver
+import no.nav.tsm.sykmelding.model.OcrCrossChecked
 import no.nav.tsm.sykmelding.model.OcrParserAktivitet
-import no.nav.tsm.sykmelding.model.OcrParserAktivitetType
+import no.nav.tsm.sykmelding.model.OcrParserDiagnose
 import no.nav.tsm.sykmelding.model.OcrParserSykmelding
+import no.nav.tsm.sykmelding.model.OcrValue
+import no.nav.tsm.sykmelding.model.valueOrNull
 import java.text.Normalizer
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 internal enum class ComparisonStatus {
     MATCH, NORMALIZED_MATCH, DIFFERENT, MISSING_OCR, OCR_ONLY, UNCERTAIN, XML_PROBLEM, NOT_COMPARABLE,
@@ -26,7 +29,7 @@ internal class OcrXmlComparison(val fields: List<OcrXmlFieldComparison>, val pro
         appendLine("Mapped OCR / Iron Mountain XML comparison (whole document)")
         appendLine("OCR: final OcrParserSykmelding output. XML: Skanningmetadata as production reads it; as written where that differs.")
         appendLine("Agreement is not ground truth. Differences and OCR-only values require checking the PDF.")
-        appendLine("Normalized: whitespace (also around punctuation like , and /, and in house numbers like 11 A), dates (16.09.26, 16.09.2026, ISO), numbers, booleans, the \".\" and case in diagnosis codes and leading zeros of HPR numbers, spaces in phone numbers.")
+        appendLine("Normalized: whitespace (also around punctuation like , and /, and in house numbers like 11 A), numbers, booleans, the \".\" and case in diagnosis codes and leading zeros of HPR numbers, spaces in phone numbers. OCR values are typed (dates as ISO, diagnosis codes as tsm-diagnoser has them); an unreadable one is UNCERTAIN, shown as read, with the reason in its note.")
         appendLine("Empty pairs are omitted. Uncertain and uncomparable fields are not counted as matches.")
         appendLine()
         ComparisonStatus.entries.forEach { status -> appendLine("$status: ${fields.count { it.status == status }}") }
@@ -60,13 +63,13 @@ internal fun compareMappedOcrWithXml(mapped: OcrParserSykmelding, xml: Papirsykm
         val field = xmlFields[pair.path]
         val ocr = pair.ocr?.takeIf { it.isNotBlank() }
         val original = (if (field?.note != null) field.text else pair.xml ?: field?.text)?.takeIf { it.isNotBlank() }
-        val uncertain = pair.kind == ValueKind.BOOLEAN && ocr == CheckboxState.UNCERTAIN.name
-        if (original == null && (ocr == null || uncertain) && field?.problem == null) return@mapNotNull null
+        val uncertainBox = pair.kind == ValueKind.BOOLEAN && ocr == CheckboxState.UNCERTAIN.name
+        if (original == null && (ocr == null || uncertainBox) && field?.problem == null) return@mapNotNull null
         val status = when {
             pair.kind == ValueKind.UNSUPPORTED -> ComparisonStatus.NOT_COMPARABLE
             field?.problem != null || (field?.note != null &&
                 normalize(field.value.orEmpty(), pair.kind) != normalize(field.text, pair.kind)) -> ComparisonStatus.XML_PROBLEM
-            uncertain -> ComparisonStatus.UNCERTAIN
+            uncertainBox || pair.unreadable -> ComparisonStatus.UNCERTAIN
             ocr == null -> ComparisonStatus.MISSING_OCR
             original == null -> ComparisonStatus.OCR_ONLY
             ocr == original -> ComparisonStatus.MATCH
@@ -90,8 +93,18 @@ private fun comparisonPath(path: String): String = path
  */
 private enum class ValueKind { TEXT, DATE, NUMBER, BOOLEAN, CATEGORY, CODE, HPR, PHONE, UNSUPPORTED }
 
-/** An XML value at its [path] and the OCR value it is compared with; either is null when absent. */
-private data class FieldPair(val path: String, val ocr: String?, val xml: String?, val kind: ValueKind, val note: String? = null)
+/**
+ * An XML value at its [path] and the OCR value it is compared with; either is null when absent. [unreadable]: the OCR
+ * value is [OcrValue.Unreadable], so [ocr] is its text as read.
+ */
+private data class FieldPair(
+    val path: String,
+    val ocr: String?,
+    val xml: String?,
+    val kind: ValueKind,
+    val note: String? = null,
+    val unreadable: Boolean = false,
+)
 
 private const val NO_OCR_FIELD = "OcrParserSykmelding has no field for this."
 private const val NOT_ON_TEMPLATES = "Not on the current templates."
@@ -100,6 +113,16 @@ private const val NO_XML_FIELD = "The XML has no field for this."
 private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?): List<FieldPair> = buildList {
     fun pair(path: String, ocr: Any?, xml: Any?, kind: ValueKind = ValueKind.TEXT) {
         add(FieldPair(path, ocr?.toString(), xml?.toString(), kind))
+    }
+    /** A typed OCR value: shown as [shown] gives it, with its text in the note when that differs, or as read when unreadable. */
+    fun <T> read(path: String, ocr: OcrValue<T>?, xml: Any?, kind: ValueKind = ValueKind.TEXT, shown: (T) -> String = { it.toString() }) {
+        add(when (ocr) {
+            is OcrValue.Read -> shown(ocr.value).let { value ->
+                FieldPair(path, value, xml?.toString(), kind, note = ocr.text.takeIf { it != value }?.let { "OCR text: $it" })
+            }
+            is OcrValue.Unreadable -> FieldPair(path, ocr.text, xml?.toString(), kind, "Unreadable: ${ocr.reason}", unreadable = true)
+            null -> FieldPair(path, null, xml?.toString(), kind)
+        })
     }
     fun checkbox(path: String, state: CheckboxState?, xml: Boolean?) = pair(path, when (state) {
         CheckboxState.CHECKED -> "true"
@@ -110,65 +133,76 @@ private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?): Li
     fun xmlOnly(path: String, xml: Any?, note: String = NO_OCR_FIELD) =
         add(FieldPair(path, null, xml?.toString(), ValueKind.UNSUPPORTED, note))
     fun ocrOnly(path: String, ocr: Any?) = add(FieldPair("OCR.$path", ocr?.toString(), null, ValueKind.UNSUPPORTED, NO_XML_FIELD))
+    /** An OCR-only value: an unreadable one shows its text as read and why. */
+    fun ocrText(value: OcrValue<*>?): String? = when (value) {
+        is OcrValue.Read -> value.value.toString()
+        is OcrValue.Unreadable -> "${value.text} (unreadable: ${value.reason})"
+        null -> null
+    }
+    fun crossChecked(path: String, value: OcrCrossChecked<String>) {
+        ocrOnly("$path.readings", value.readings.joinToString("\n") { reading ->
+            "${reading.value.text} (${reading.field} p${reading.page})" +
+                ((reading.value as? OcrValue.Unreadable)?.let { ": ${it.reason}" } ?: "")
+        }.ifEmpty { null })
+        ocrOnly("$path.confirmations", value.confirmations.takeIf { value.readings.isNotEmpty() })
+    }
+    fun diagnose(path: String, ocr: OcrParserDiagnose?, system: String?, kode: String?, tekst: String?) {
+        pair("$path.diagnosekodeSystem", ocr?.system, system)
+        read("$path.diagnosekode", ocr?.diagnose, kode, ValueKind.CODE) { it.code }
+        pair("$path.diagnose", ocr?.tekst, tekst)
+        ocrOnly("$path.official", ocr?.diagnose.valueOrNull()?.let { "${it.system} ${it.code} ${it.text}" })
+    }
     fun period(name: String, ocr: OcrParserAktivitet?, fom: LocalDate?, tom: LocalDate?) {
-        pair("aktivitet.$name.periodeFOMDato", ocr?.fom, fom, ValueKind.DATE)
-        pair("aktivitet.$name.periodeTOMDato", ocr?.tom, tom, ValueKind.DATE)
+        read("aktivitet.$name.periodeFOMDato", ocr?.fom, fom, ValueKind.DATE)
+        read("aktivitet.$name.periodeTOMDato", ocr?.tom, tom, ValueKind.DATE)
     }
 
-    pair("syketilfelleStartDato", mapped.legemeldtFravaerStart, xml?.syketilfelleStartDato, ValueKind.DATE)
+    read("syketilfelleStartDato", mapped.syketilfelletStartDato, xml?.syketilfelleStartDato, ValueKind.DATE)
 
-    pair("pasient.fnr", mapped.pasient?.fnr, xml?.pasient?.fnr)
-    mapped.pasient?.let {
-        ocrOnly("pasient.navn", it.navn)
-        ocrOnly("pasient.etternavn", it.etternavn)
-        ocrOnly("pasient.fornavn", it.fornavn)
-        ocrOnly("pasient.telefon", it.telefon)
-        ocrOnly("pasient.adresse", it.adresse)
-        ocrOnly("pasient.postnrSted", it.postnrSted)
-        ocrOnly("pasient.fastlege", it.fastlege)
-        ocrOnly("pasient.navKontor", it.navKontor)
-    }
+    val pasient = mapped.pasient
+    read("pasient.fnr", pasient.fnr.value, xml?.pasient?.fnr)
+    crossChecked("pasient.fnr", pasient.fnr)
+    ocrOnly("pasient.etternavn", ocrText(pasient.etternavn.value))
+    crossChecked("pasient.etternavn", pasient.etternavn)
+    ocrOnly("pasient.fornavn", ocrText(pasient.fornavn.value))
+    crossChecked("pasient.fornavn", pasient.fornavn)
+    ocrOnly("pasient.telefon", ocrText(pasient.telefon))
+    ocrOnly("pasient.navnFastlege", pasient.navnFastlege)
+    ocrOnly("pasient.navKontor", pasient.navKontor)
 
     val arbeidsgiver = xml?.arbeidsgiver
-    pair("arbeidsgiver.harArbeidsgiver", mapped.arbeidsgiver?.harArbeidsgiver, arbeidsgiver?.harArbeidsgiver, ValueKind.CATEGORY)
-    pair("arbeidsgiver.navnArbeidsgiver", mapped.arbeidsgiver?.navn, arbeidsgiver?.navnArbeidsgiver)
-    pair("arbeidsgiver.yrkesbetegnelse", mapped.arbeidsgiver?.yrkeStilling, arbeidsgiver?.yrkesbetegnelse)
-    pair("arbeidsgiver.stillingsprosent", mapped.arbeidsgiver?.stillingsprosent, arbeidsgiver?.stillingsprosent, ValueKind.NUMBER)
+    read("arbeidsgiver.harArbeidsgiver", mapped.arbeidsgiver.harArbeidsgiver, arbeidsgiver?.harArbeidsgiver, ValueKind.CATEGORY) {
+        it.formText
+    }
+    pair("arbeidsgiver.navnArbeidsgiver", mapped.arbeidsgiver.navn, arbeidsgiver?.navnArbeidsgiver)
+    pair("arbeidsgiver.yrkesbetegnelse", mapped.arbeidsgiver.yrkesbetegnelse, arbeidsgiver?.yrkesbetegnelse)
+    read("arbeidsgiver.stillingsprosent", mapped.arbeidsgiver.stillingsprosent, arbeidsgiver?.stillingsprosent, ValueKind.NUMBER)
 
     val vurdering = xml?.medisinskVurdering
-    val diagnose = mapped.diagnose
+    val medisinsk = mapped.medisinskVurdering
     // The OCR has one main diagnosis; further ones in the XML are reported as missing OCR.
     val hovedDiagnoser = vurdering?.hovedDiagnose.orEmpty()
     repeat(maxOf(1, hovedDiagnoser.size)) { index ->
-        val path = "medisinskVurdering.hovedDiagnose[${index + 1}]"
-        val ocr = diagnose?.takeIf { index == 0 }
         val hoved = hovedDiagnoser.getOrNull(index)
-        pair("$path.diagnosekodeSystem", ocr?.hoveddiagnoseKodesystem, hoved?.diagnosekodeSystem)
-        pair("$path.diagnosekode", ocr?.hoveddiagnoseKode, hoved?.diagnosekode, ValueKind.CODE)
-        pair("$path.diagnose", ocr?.hoveddiagnoseTekst, hoved?.diagnose)
+        diagnose("medisinskVurdering.hovedDiagnose[${index + 1}]", medisinsk.hovedDiagnose?.takeIf { index == 0 },
+            hoved?.diagnosekodeSystem, hoved?.diagnosekode, hoved?.diagnose)
     }
     val bidiagnoser = vurdering?.bidiagnose.orEmpty()
-    val ocrBidiagnoser = diagnose?.bidiagnoser.orEmpty()
+    val ocrBidiagnoser = medisinsk.biDiagnoser
     repeat(maxOf(1, bidiagnoser.size, ocrBidiagnoser.size)) { index ->
-        val path = "medisinskVurdering.bidiagnose[${index + 1}]"
-        val ocr = ocrBidiagnoser.getOrNull(index)
         val bi = bidiagnoser.getOrNull(index)
-        pair("$path.diagnosekodeSystem", ocr?.kodesystem, bi?.diagnosekodeSystem)
-        pair("$path.diagnosekode", ocr?.kode, bi?.diagnosekode, ValueKind.CODE)
-        pair("$path.diagnose", ocr?.tekst, bi?.diagnose)
+        diagnose("medisinskVurdering.bidiagnose[${index + 1}]", ocrBidiagnoser.getOrNull(index),
+            bi?.diagnosekodeSystem, bi?.diagnosekode, bi?.diagnose)
     }
-    pair("medisinskVurdering.annenFraversArsak", diagnose?.lovfestetFraversgrunn, vurdering?.annenFraversArsak)
-    pair("medisinskVurdering.fraversBeskrivelse", diagnose?.fraversgrunnBeskrivelse, vurdering?.fraversBeskrivelse)
-    checkbox("medisinskVurdering.svangerskap", diagnose?.svangerskap, vurdering?.isSvangerskap)
-    checkbox("medisinskVurdering.yrkesskade", diagnose?.yrkesskade, vurdering?.isYrkesskade)
-    pair("medisinskVurdering.yrkesskadedato", diagnose?.skadedato, vurdering?.yrkesskadedato, ValueKind.DATE)
-    checkbox("medisinskVurdering.skjermesForPasient", diagnose?.skjermingPaakrevet, vurdering?.isSkjermesForPasient)
+    pair("medisinskVurdering.annenFraversArsak", medisinsk.annenFraversArsak?.tekst, vurdering?.annenFraversArsak)
+    pair("medisinskVurdering.fraversBeskrivelse", medisinsk.annenFraversArsak?.beskrivelse, vurdering?.fraversBeskrivelse)
+    ocrOnly("medisinskVurdering.annenFraversArsak.arsak", medisinsk.annenFraversArsak?.arsak?.joinToString()?.ifEmpty { null })
+    checkbox("medisinskVurdering.svangerskap", medisinsk.svangerskap, vurdering?.isSvangerskap)
+    checkbox("medisinskVurdering.yrkesskade", medisinsk.yrkesskade, vurdering?.isYrkesskade)
+    read("medisinskVurdering.yrkesskadedato", medisinsk.yrkesskadeDato, vurdering?.yrkesskadedato, ValueKind.DATE)
+    checkbox("medisinskVurdering.skjermesForPasient", medisinsk.skjermetForPasient, vurdering?.isSkjermesForPasient)
 
-    val activities = mapped.aktiviteter.orEmpty()
-    val seenActivityTypes = HashSet<OcrParserAktivitetType>()
-    activities.forEachIndexed { index, activity ->
-        if (!seenActivityTypes.add(activity.type)) ocrOnly("aktiviteter[${index + 1}]", activity)
-    }
+    val activities = mapped.aktivitet
     val avventende = activities.filterIsInstance<OcrParserAktivitet.Avventende>().firstOrNull()
     val gradert = activities.filterIsInstance<OcrParserAktivitet.Gradert>().firstOrNull()
     val ikkeMulig = activities.filterIsInstance<OcrParserAktivitet.IkkeMulig>().firstOrNull()
@@ -181,31 +215,30 @@ private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?): Li
 
     val xmlGradert = aktivitet?.gradertSykmelding
     period("gradertSykmelding", gradert, xmlGradert?.periodeFOMDato, xmlGradert?.periodeTOMDato)
-    pair("aktivitet.gradertSykmelding.sykmeldingsgrad", gradert?.grad, xmlGradert?.sykmeldingsgrad, ValueKind.NUMBER)
+    read("aktivitet.gradertSykmelding.sykmeldingsgrad", gradert?.grad, xmlGradert?.sykmeldingsgrad, ValueKind.NUMBER)
     checkbox("aktivitet.gradertSykmelding.reisetilskudd", gradert?.reisetilskudd, xmlGradert?.isReisetilskudd)
 
     val xmlIkkeMulig = aktivitet?.aktivitetIkkeMulig
     period("aktivitetIkkeMulig", ikkeMulig, xmlIkkeMulig?.periodeFOMDato, xmlIkkeMulig?.periodeTOMDato)
     checkbox("aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerHindrer", ikkeMulig?.medisinskArsak,
         xmlIkkeMulig?.medisinskeArsaker?.isMedArsakerHindrer)
-    pair("aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerBesk", ikkeMulig?.medisinskArsakBeskrivelse,
-        xmlIkkeMulig?.medisinskeArsaker?.medArsakerBesk)
+    xmlOnly("aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerBesk", xmlIkkeMulig?.medisinskeArsaker?.medArsakerBesk,
+        NOT_ON_TEMPLATES)
     checkbox("aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenHindrer", ikkeMulig?.arbeidsrelatertArsak,
         xmlIkkeMulig?.arbeidsplassen?.isArbeidsplassenHindrer)
     xmlOnly("aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenBesk", xmlIkkeMulig?.arbeidsplassen?.arbeidsplassenBesk)
-    ocrOnly("aktivitet.ikkeMulig.medisinskArsakType", ikkeMulig?.medisinskArsakType)
 
     val xmlBehandling = aktivitet?.behandlingsdager
     period("behandlingsdager", behandling, xmlBehandling?.periodeFOMDato, xmlBehandling?.periodeTOMDato)
-    pair("aktivitet.behandlingsdager.antallBehandlingsdager", behandling?.antallBehandlingsdager,
+    read("aktivitet.behandlingsdager.antallBehandlingsdager", behandling?.antallBehandlingsdager,
         xmlBehandling?.antallBehandlingsdager, ValueKind.NUMBER)
 
     aktivitet?.reisetilskudd.let { period("reisetilskudd", reise, it?.periodeFOMDato, it?.periodeTOMDato) }
 
     val prognose = xml?.prognose
-    checkbox("prognose.friskmelding.arbeidsforEtterEndtPeriode", mapped.prognose?.arbeidsforEtterPeriode,
+    checkbox("prognose.friskmelding.arbeidsforEtterEndtPeriode", mapped.prognose.arbeidsforEtterPeriode,
         prognose?.friskmelding?.isArbeidsforEtterEndtPeriode)
-    pair("prognose.friskmelding.beskrivHensynArbeidsplassen", mapped.prognose?.beskrivHensyn,
+    pair("prognose.friskmelding.beskrivHensynArbeidsplassen", mapped.prognose.hensynArbeidsplassen,
         prognose?.friskmelding?.beskrivHensynArbeidsplassen)
     prognose?.medArbeidsgiver.let {
         xmlOnly("prognose.medArbeidsgiver.tilbakeSammeArbeidsgiver", it?.isTilbakeSammeArbeidsgiver, NOT_ON_TEMPLATES)
@@ -226,26 +259,32 @@ private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?): Li
         xmlOnly("utdypendeOpplysninger.planlagtBehandling", it?.planlagtBehandling, NOT_ON_TEMPLATES)
     }
 
-    pair("tiltak.tiltakArbeidsplassen", mapped.bedreArbeidsevne?.tilleggsinformasjonForArbeidsgiver, xml?.tiltak?.tiltakArbeidsplassen)
-    pair("tiltak.tiltakNAV", mapped.bedreArbeidsevne?.tiltakIRegiAvNav, xml?.tiltak?.tiltakNAV)
-    pair("tiltak.andreTiltak", mapped.bedreArbeidsevne?.eventuelleAndreInnspillTilNav, xml?.tiltak?.andreTiltak)
+    pair("tiltak.tiltakArbeidsplassen", mapped.tiltak.tiltakArbeidsplassen, xml?.tiltak?.tiltakArbeidsplassen)
+    pair("tiltak.tiltakNAV", mapped.tiltak.tiltakNav, xml?.tiltak?.tiltakNAV)
+    pair("tiltak.andreTiltak", mapped.tiltak.andreTiltak, xml?.tiltak?.andreTiltak)
 
-    checkbox("meldingTilNAV.bistandNAVUmiddelbart", mapped.tilleggsinformasjon?.bistandNavOnskes, xml?.meldingTilNAV?.isBistandNAVUmiddelbart)
-    pair("meldingTilNAV.beskrivBistandNAV", mapped.tilleggsinformasjon?.beskrivBistandOnskes, xml?.meldingTilNAV?.beskrivBistandNAV)
-    pair("meldingTilArbeidsgiver", mapped.meldingTilArbeidsgiver?.innspillTilArbeidsgiver, xml?.meldingTilArbeidsgiver)
+    checkbox("meldingTilNAV.bistandNAVUmiddelbart", mapped.bistandNav.bistandUmiddelbart, xml?.meldingTilNAV?.isBistandNAVUmiddelbart)
+    pair("meldingTilNAV.beskrivBistandNAV", mapped.bistandNav.beskrivBistand, xml?.meldingTilNAV?.beskrivBistandNAV)
+    pair("meldingTilArbeidsgiver", mapped.meldingTilArbeidsgiver, xml?.meldingTilArbeidsgiver)
 
-    pair("tilbakedatering.tilbakeDato", mapped.tilbakedatering?.kontaktDato, xml?.tilbakedatering?.tilbakeDato, ValueKind.DATE)
-    pair("tilbakedatering.tilbakebegrunnelse", mapped.tilbakedatering?.begrunnelse, xml?.tilbakedatering?.tilbakebegrunnelse)
+    read("tilbakedatering.tilbakeDato", mapped.tilbakedatering.kontaktDato, xml?.tilbakedatering?.tilbakeDato, ValueKind.DATE)
+    pair("tilbakedatering.tilbakebegrunnelse", mapped.tilbakedatering.begrunnelse, xml?.tilbakedatering?.tilbakebegrunnelse)
 
-    pair("kontaktMedPasient.behandletDato", mapped.sykmelder?.dato, xml?.kontaktMedPasient?.behandletDato, ValueKind.DATE)
-    pair("behandler.HPR", mapped.sykmelder?.hprNummer, xml?.behandler?.hpr, ValueKind.HPR)
-    pair("behandler.telefon", mapped.sykmelder?.telefon, xml?.behandler?.telefon, ValueKind.PHONE)
-    pair("behandler.adresse", mapped.sykmelder?.adresse, xml?.behandler?.adresse)
-    ocrOnly("sykmelder.navn", mapped.sykmelder?.navn)
-    ocrOnly("formType", mapped.formType)
-    ocrOnly("formVersion", mapped.formVersion)
-    ocrOnly("vurderingType", mapped.vurderingType?.name)
+    read("kontaktMedPasient.behandletDato", mapped.behandler.behandletDato, xml?.kontaktMedPasient?.behandletDato, ValueKind.DATE)
+    read("behandler.HPR", mapped.behandler.hpr, xml?.behandler?.hpr, ValueKind.HPR)
+    read("behandler.telefon", mapped.behandler.telefon, xml?.behandler?.telefon, ValueKind.PHONE)
+    pair("behandler.adresse", mapped.behandler.adresse, xml?.behandler?.adresse)
+    ocrOnly("behandler.navn", mapped.behandler.navn)
+    ocrOnly("templateVersion", mapped.templateVersion)
 }
+
+/** The category in words, whose first word the XML has, e.g. "En". */
+private val HarArbeidsgiver.formText: String
+    get() = when (this) {
+        HarArbeidsgiver.EN_ARBEIDSGIVER -> "En arbeidsgiver"
+        HarArbeidsgiver.FLERE_ARBEIDSGIVERE -> "Flere arbeidsgivere"
+        HarArbeidsgiver.INGEN_ARBEIDSGIVER -> "Ingen arbeidsgiver"
+    }
 
 private val whitespace = Regex("\\s+")
 /** A house number and its letter, written apart or together: "11 A" is "11A". */
@@ -255,29 +294,10 @@ private val phoneMarks = Regex("""[\s.\-()/]""")
 private val punctuationSpacing = Regex(""" ?([,./;:()\-]) ?""")
 private val diacritics = Regex("\\p{M}")
 
-/** A date as written on paper: day, month, year, split by `.`, `/`, `-` or space, or not at all (`160926`). */
-private val paperDate = Regex("""(\d{1,2})[./\- ]+(\d{1,2})[./\- ]+(\d{2}|\d{4})""")
-private val paperDateDigits = Regex("""(\d{2})(\d{2})(\d{2}|\d{4})""")
-
-/**
- * [text] as a date: ISO (`2026-09-16`) or as on paper (`16.09.2026`, `16.09.26`, `16/9-26`, `160926`). A two-digit
- * year is in this century. Dates that do not exist, like `31.02.2026`, are not dates.
- */
-private fun parseDate(text: String): LocalDate? {
-    runCatching { return LocalDate.parse(text, DateTimeFormatter.ISO_LOCAL_DATE) }
-    val (day, month, year) = (paperDate.matchEntire(text) ?: paperDateDigits.matchEntire(text))?.destructured ?: return null
-    val fullYear = if (year.length == 2) 2000 + year.toInt() else year.toInt()
-    return try {
-        LocalDate.of(fullYear, month.toInt(), day.toInt())
-    } catch (_: java.time.DateTimeException) {
-        null
-    }
-}
-
 private fun normalize(text: String, kind: ValueKind): String {
     val trimmed = text.trim().replace(whitespace, " ")
     return when (kind) {
-        ValueKind.DATE -> parseDate(trimmed)?.toString() ?: trimmed
+        ValueKind.DATE -> runCatching { LocalDate.parse(trimmed).toString() }.getOrDefault(trimmed)
         ValueKind.NUMBER -> trimmed.toBigDecimalOrNull()?.stripTrailingZeros()?.toPlainString() ?: trimmed
         ValueKind.BOOLEAN -> when (trimmed) { "1" -> "true"; "0" -> "false"; else -> trimmed }
         ValueKind.CATEGORY -> Normalizer.normalize(trimmed.substringBefore(' '), Normalizer.Form.NFD)

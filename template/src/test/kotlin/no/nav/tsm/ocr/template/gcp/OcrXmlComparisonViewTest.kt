@@ -49,13 +49,13 @@ class OcrXmlComparisonViewTest {
                 val page = LibraryPage("03.2019", File(directory, "mal.json"), 1, 1, File(directory, "page.json"),
                     Template("", "", emptyList(), ""))
                 val field = Felter(0, 0, 1, 1, "pasient.fnr", "fnr")
-                val read = PageRead(emptyList(), mapOf(field to FieldText(listOf(TextRegion(0, 0, 1, 1, "01010112345", 99f)))))
+                val read = PageRead(emptyList(), mapOf(field to FieldText(listOf(TextRegion(0, 0, 1, 1, "30898098466", 99f)))))
                 set("shownResult", PdfTestResult(PdfStatus.MATCHED, outcomes = listOf(TemplateOutcome(page, null, 1.0)), reads = listOf(read),
                     sykmelding = SykmeldingOcrMapping.map("03.2019", listOf(read))))
                 refresh()
                 assertFalse(button.isEnabled)
                 set("comparisonXml", XmlContent.of("""
-                    <skanningmetadata><sykemeldinger><pasient><fnr>01010112345</fnr></pasient></sykemeldinger></skanningmetadata>
+                    <skanningmetadata><sykemeldinger><pasient><fnr>30898098466</fnr></pasient></sykemeldinger></skanningmetadata>
                 """.trimIndent().toByteArray()))
                 refresh()
                 assertTrue(button.isEnabled)
@@ -66,7 +66,7 @@ class OcrXmlComparisonViewTest {
                 assertEquals("Parsed XML", xmlViews.getTitleAt(0))
                 assertEquals("Final OCR output", xmlViews.getTitleAt(2))
                 val finalOutput = ((xmlViews.getComponentAt(2) as JScrollPane).viewport.view as JTextArea).text
-                assertTrue(finalOutput.contains("\"fnr\" : \"01010112345\""), finalOutput)
+                assertTrue(finalOutput.contains("\"value\" : \"30898098466\""), finalOutput)
                 button.doClick()
                 val tabs = get("tabs") as JTabbedPane
                 assertEquals("OCR vs XML", tabs.getTitleAt(tabs.selectedIndex))
@@ -79,10 +79,10 @@ class OcrXmlComparisonViewTest {
                 assertFalse(print.isEnabled)
                 assertFalse(copy.isEnabled)
                 assertFalse(sideBySide.isEnabled)
-                assertFalse(text.text.contains("01010112345"))
+                assertFalse(text.text.contains("30898098466"))
                 set("shownResult", null)
                 set("comparisonXml", XmlContent.of("""
-                    <skanningmetadata><sykemeldinger><pasient><fnr>01010112345</fnr></pasient></sykemeldinger></skanningmetadata>
+                    <skanningmetadata><sykemeldinger><pasient><fnr>30898098466</fnr></pasient></sykemeldinger></skanningmetadata>
                 """.trimIndent().toByteArray()))
                 refresh()
                 assertTrue(sideBySide.isEnabled, "XML can be opened with an explanation even before OCR is ready")

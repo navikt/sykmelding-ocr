@@ -1,12 +1,6 @@
 package no.nav.tsm.ocr.template.gcp
 
-import no.nav.tsm.sykmelding.model.Bidiagnose
 import no.nav.tsm.sykmelding.model.CheckboxState
-import no.nav.tsm.sykmelding.model.OcrParserAktivitet
-import no.nav.tsm.sykmelding.model.OcrParserArbeidsgiver
-import no.nav.tsm.sykmelding.model.OcrParserDiagnose
-import no.nav.tsm.sykmelding.model.OcrParserSykmelder
-import no.nav.tsm.sykmelding.model.OcrParserPasient
 import no.nav.tsm.sykmelding.ocr.FieldText
 import no.nav.tsm.sykmelding.ocr.PageRead
 import no.nav.tsm.sykmelding.ocr.SykmeldingOcrMapping
@@ -50,12 +44,12 @@ class OcrXmlComparisonTest {
     @Test
     fun `compares production mapped values across all pages`() {
         val mapped = assertNotNull(mapped(
-            mapOf("pasient.fnr" to "01010112345"),
+            mapOf("pasient.fnr" to "30898098466"),
             mapOf("arbeidsgiver.arbeidsgiver" to "Example AS"),
             mapOf("bekreftelse.hpr" to "1234567"),
         ))
         val comparison = compareMappedOcrWithXml(mapped, xml(
-            "pasient.fnr" to "01010112345",
+            "pasient.fnr" to "30898098466",
             "arbeidsgiver.navnArbeidsgiver" to "Example AS",
             "behandler.HPR" to "1234567",
         ))
@@ -66,12 +60,11 @@ class OcrXmlComparisonTest {
 
     @Test
     fun `reports missing different extra and uncertain values without counting empty pairs`() {
-        val mapped = emptyMapped.copy(
-            pasient = OcrParserPasient(fnr = "01010112345", fornavn = "Example"),
-            diagnose = OcrParserDiagnose(hoveddiagnoseKode = "L84"),
-        )
+        val mapped = assertNotNull(mapped(mapOf(
+            "pasient.fnr" to "30898098466", "pasient.fornavn" to "Example", "hoveddiagnose.kode" to "R74",
+        )))
         val rows = compareMappedOcrWithXml(mapped, xml(
-            "pasient.fnr" to "01010112346",
+            "pasient.fnr" to "01018012371",
             "arbeidsgiver.navnArbeidsgiver" to "Example AS",
             "medisinskVurdering.svangerskap" to "false",
             "behandler.adresse" to "",
@@ -87,35 +80,37 @@ class OcrXmlComparisonTest {
     }
 
     @Test
-    fun `normalization is conservative and keeps original values visible`() {
-        val mapped = emptyMapped.copy(
-            diagnose = OcrParserDiagnose(skadedato = "23.10.2026", svangerskap = CheckboxState.CHECKED),
-            aktiviteter = listOf(OcrParserAktivitet.Gradert("23.10.2026", "31.10.2026", 50)),
-        )
+    fun `typed OCR values compare as typed and keep their text visible`() {
+        val mapped = assertNotNull(mapped(
+            mapOf("diagnose.yrkesskade.skadedato" to "23.10.2026"),
+            mapOf("aktivitet.gradert.fom" to "23.10.2026", "aktivitet.gradert.tom" to "31.10.2026", "aktivitet.gradert.grad" to "50"),
+        )).let { it.copy(medisinskVurdering = it.medisinskVurdering.copy(svangerskap = CheckboxState.CHECKED)) }
         val rows = compareMappedOcrWithXml(mapped, xml(
             "medisinskVurdering.yrkesskadedato" to "2026-10-23",
             "medisinskVurdering.svangerskap" to "1",
             "aktivitet.gradertSykmelding.sykmeldingsgrad" to "50.0",
         )).fields.associateBy { it.path }
-        for (path in listOf("medisinskVurdering.yrkesskadedato", "medisinskVurdering.svangerskap", "aktivitet.gradertSykmelding.sykmeldingsgrad")) {
-            assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue(path).status)
+        val yrkesskadedato = rows.getValue("medisinskVurdering.yrkesskadedato")
+        assertEquals(ComparisonStatus.MATCH, yrkesskadedato.status)
+        assertEquals("2026-10-23", yrkesskadedato.ocr)
+        assertEquals("OCR text: 23.10.2026", yrkesskadedato.note)
+        for (path in listOf("medisinskVurdering.svangerskap", "aktivitet.gradertSykmelding.sykmeldingsgrad")) {
+            assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue(path).status, path)
         }
-        assertEquals("23.10.2026", rows.getValue("medisinskVurdering.yrkesskadedato").ocr)
-        assertEquals("2026-10-23", rows.getValue("medisinskVurdering.yrkesskadedato").xml)
         val identifiers = compareMappedOcrWithXml(
-            emptyMapped.copy(pasient = OcrParserPasient(fnr = "01010112345")),
-            xml("pasient.fnr" to "1010112345"),
+            assertNotNull(mapped(mapOf("pasient.fnr" to "30898098466"))),
+            xml("pasient.fnr" to "0898098466"),
         )
         assertEquals(ComparisonStatus.DIFFERENT, identifiers.fields.single { it.path == "pasient.fnr" }.status)
     }
 
     @Test
     fun `single and repeated diagnoses are aligned and additional XML diagnoses are not lost`() {
-        val mapped = emptyMapped.copy(diagnose = OcrParserDiagnose(bidiagnoser = listOf(Bidiagnose(kode = "L84"))))
-        val single = compareMappedOcrWithXml(mapped, xml("medisinskVurdering.bidiagnose.diagnosekode" to "L84"))
+        val mapped = assertNotNull(mapped(mapOf("bidiagnose.kode" to "R74")))
+        val single = compareMappedOcrWithXml(mapped, xml("medisinskVurdering.bidiagnose.diagnosekode" to "R74"))
         assertEquals(ComparisonStatus.MATCH, single.fields.single { it.path.startsWith("medisinskVurdering") }.status)
         val repeated = compareMappedOcrWithXml(mapped, xml(
-            "medisinskVurdering.bidiagnose[1].diagnosekode" to "L84",
+            "medisinskVurdering.bidiagnose[1].diagnosekode" to "R74",
             "medisinskVurdering.bidiagnose[2].diagnosekode" to "R05",
         ))
         assertEquals(listOf(ComparisonStatus.MATCH, ComparisonStatus.MISSING_OCR),
@@ -123,20 +118,22 @@ class OcrXmlComparisonTest {
     }
 
     @Test
-    fun `mapping preserves duplicate detection and excludes repeated page titles`() {
+    fun `mapping keeps the duplicate check and collects page titles`() {
         assertFailsWith<IllegalArgumentException> {
-            mapped(mapOf("pasient.fnr" to "01010112345"), mapOf("pasient.fnr" to "01010112346"))
+            mapped(mapOf("pasient.fnr" to "30898098466"), mapOf("pasient.fnr" to "01018012371"))
         }
-        assertNotNull(mapped(mapOf("tittel.fnr" to "01010112345"), mapOf("tittel.fnr" to "01010112345")))
-        assertEquals(emptyMapped, assertNotNull(mapped(emptyMap(), version = "0.2019")))
+        val titles = assertNotNull(mapped(mapOf("tittel.fnr" to "30898098466"), mapOf("tittel.fnr" to "30898098466")))
+        assertEquals(2, titles.pasient.fnr.confirmations)
+        assertEquals(emptyMapped.copy(templateVersion = "0.2019"), assertNotNull(mapped(emptyMap(), version = "0.2019")))
     }
 
     @Test
     fun `spaces around punctuation in text are normalized`() {
-        val mapped = emptyMapped.copy(diagnose = OcrParserDiagnose(
-            hoveddiagnoseTekst = "Vondt i rygg, nakke og\nskulder", fraversgrunnBeskrivelse = "a, b",
-            bidiagnoser = listOf(Bidiagnose(tekst = "Tennisalbue/lateral epikondylitt")),
-        ))
+        val mapped = assertNotNull(mapped(mapOf(
+            "hoveddiagnose.text" to "Vondt i rygg, nakke og\nskulder",
+            "diagnose.fravarsgrunnBeskrivelse" to "a, b",
+            "bidiagnose.text" to "Tennisalbue/lateral epikondylitt",
+        )))
         val rows = compareMappedOcrWithXml(mapped, xml(
             "medisinskVurdering.hovedDiagnose.diagnose" to "Vondt i rygg,nakke og skulder",
             "medisinskVurdering.fraversBeskrivelse" to "a,c",
@@ -149,12 +146,14 @@ class OcrXmlComparisonTest {
 
     @Test
     fun `spaces inside brackets and phone numbers are normalized`() {
-        val mapped = emptyMapped.copy(
-            arbeidsgiver = OcrParserArbeidsgiver(yrkeStilling = "Fagarbeider (fast)"),
-            sykmelder = OcrParserSykmelder(telefon = "12 34 56 78", adresse = "adresse 1 A, 1111 postbox"),
-        )
+        val mapped = assertNotNull(mapped(mapOf(
+            "arbeidsgiver.yrke" to "Fagarbeider (fast)",
+            "bekreftelse.telefon" to "+47 12 34 56 78",
+            "bekreftelse.adresse" to "adresse 1 A, 1111 postbox",
+        )))
         val rows = compareMappedOcrWithXml(mapped, xml(
             "arbeidsgiver.yrkesbetegnelse" to "Fagarbeider ( fast )",
+            // The schema has the phone number as an integer, so the XML can't hold "+47" or spaces.
             "behandler.telefon" to "12345678",
             "behandler.adresse" to "adresse 1A,1111 postbox",
         )).fields.associateBy { it.path }
@@ -165,52 +164,58 @@ class OcrXmlComparisonTest {
 
     @Test
     fun `an HPR number without its leading zeros matches`() {
-        listOf("1234567" to "001234567", "001234567" to "1234567").forEach { (ocr, written) ->
-            val mapped = emptyMapped.copy(sykmelder = OcrParserSykmelder(hprNummer = ocr))
-            val rows = compareMappedOcrWithXml(mapped, xml("behandler.HPR" to written)).fields.associateBy { it.path }
-            assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue("behandler.HPR").status, ocr)
+        fun status(ocr: String, written: String) = compareMappedOcrWithXml(
+            assertNotNull(mapped(mapOf("bekreftelse.hpr" to ocr))),
+            xml("behandler.HPR" to written),
+        ).fields.single { it.path == "behandler.HPR" }.status
+        for (ocr in listOf("1234567", "001234567")) {
+            assertEquals(ComparisonStatus.NORMALIZED_MATCH, status(ocr, "001234567"), ocr)
         }
-        val mapped = emptyMapped.copy(sykmelder = OcrParserSykmelder(hprNummer = "1234568"))
-        val rows = compareMappedOcrWithXml(mapped, xml("behandler.HPR" to "001234567")).fields.associateBy { it.path }
-        assertEquals(ComparisonStatus.DIFFERENT, rows.getValue("behandler.HPR").status)
-    }
-
-    @Test
-    fun `dates written with a short year or other separators match the ISO date`() {
-        listOf("16.09.26", "16.09.2026", "16/9-26", "160926", "16 09 2026").forEach { written ->
-            val mapped = emptyMapped.copy(diagnose = OcrParserDiagnose(skadedato = written))
-            val rows = compareMappedOcrWithXml(mapped, xml("medisinskVurdering.yrkesskadedato" to "2026-09-16")).fields.associateBy { it.path }
-            assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue("medisinskVurdering.yrkesskadedato").status, written)
-        }
+        assertEquals(ComparisonStatus.DIFFERENT, status("1234568", "001234567"))
     }
 
     @Test
     fun `the dot in a diagnosis code is normalized as the XML leaves it out`() {
-        val mapped = emptyMapped.copy(diagnose = OcrParserDiagnose(hoveddiagnoseKode = "K01.1", bidiagnoser = listOf(Bidiagnose(kode = "K01.2"))))
+        val mapped = assertNotNull(mapped(mapOf(
+            "hoveddiagnose.system" to "ICD-10", "hoveddiagnose.kode" to "K01.1",
+            "bidiagnose.system" to "ICD-10", "bidiagnose.kode" to "J06.9",
+        )))
         val rows = compareMappedOcrWithXml(mapped, xml(
             "medisinskVurdering.hovedDiagnose.diagnosekode" to "k011",
-            "medisinskVurdering.bidiagnose.diagnosekode" to "K013",
+            "medisinskVurdering.bidiagnose.diagnosekode" to "J068",
         )).fields.associateBy { it.path }
         assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue("medisinskVurdering.hovedDiagnose[1].diagnosekode").status)
         assertEquals(ComparisonStatus.DIFFERENT, rows.getValue("medisinskVurdering.bidiagnose[1].diagnosekode").status)
     }
 
     @Test
-    fun `whitespace is normalized but case punctuation and invalid dates are not corrected`() {
-        val mapped = emptyMapped.copy(
-            pasient = OcrParserPasient(fnr = "uncertain"),
-            diagnose = OcrParserDiagnose(hoveddiagnoseTekst = "Example\n text", skadedato = "31.02.2026", hoveddiagnoseKode = "l-84"),
-        )
+    fun `an unreadable OCR value is uncertain and shown as read with why`() {
+        val mapped = assertNotNull(mapped(mapOf(
+            "pasient.fnr" to "30898098467",
+            "hoveddiagnose.kode" to "l-84",
+            "hoveddiagnose.text" to "Example\n text",
+            "bidiagnose.text" to "Example",
+            "diagnose.yrkesskade.skadedato" to "31.02.2026",
+        )))
         val rows = compareMappedOcrWithXml(mapped, xml(
-            "pasient.fnr" to "UNCERTAIN",
+            "pasient.fnr" to "30898098466",
             "medisinskVurdering.hovedDiagnose.diagnose" to "Example  text",
             "medisinskVurdering.hovedDiagnose.diagnosekode" to "L84",
+            "medisinskVurdering.bidiagnose.diagnose" to "example",
             "medisinskVurdering.yrkesskadedato" to "2026-02-28",
         )).fields.associateBy { it.path }
+        listOf(
+            Triple("pasient.fnr", "30898098467", "Unreadable: wrong control digits"),
+            Triple("medisinskVurdering.hovedDiagnose[1].diagnosekode", "l-84", "Unreadable: not in ICD-10 or ICPC-2"),
+            Triple("medisinskVurdering.yrkesskadedato", "31.02.2026", "Unreadable: not a date"),
+        ).forEach { (path, text, note) ->
+            val row = rows.getValue(path)
+            assertEquals(ComparisonStatus.UNCERTAIN, row.status, path)
+            assertEquals(text, row.ocr, path)
+            assertEquals(note, row.note, path)
+        }
         assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue("medisinskVurdering.hovedDiagnose[1].diagnose").status)
-        assertEquals(ComparisonStatus.DIFFERENT, rows.getValue("medisinskVurdering.hovedDiagnose[1].diagnosekode").status)
-        assertEquals(ComparisonStatus.DIFFERENT, rows.getValue("medisinskVurdering.yrkesskadedato").status)
-        assertEquals(ComparisonStatus.DIFFERENT, rows.getValue("pasient.fnr").status)
+        assertEquals(ComparisonStatus.DIFFERENT, rows.getValue("medisinskVurdering.bidiagnose[1].diagnose").status)
     }
 
     @Test
@@ -227,8 +232,10 @@ class OcrXmlComparisonTest {
         """.trimIndent().toByteArray())
         assertTrue(content.parsed, content.fields)
         val mapped = assertNotNull(mapped(mapOf(
-            "pasient.fnr" to "01010112345", "hoveddiagnose.kode" to "L84", "bekreftelse.hpr" to "1234567",
-        ))).copy(diagnose = OcrParserDiagnose(hoveddiagnoseKode = "L84", svangerskap = CheckboxState.UNCHECKED, yrkesskade = CheckboxState.CHECKED))
+            "hoveddiagnose.system" to "ICPC-2", "hoveddiagnose.kode" to "L84", "bekreftelse.hpr" to "1234567",
+        ))).let {
+            it.copy(medisinskVurdering = it.medisinskVurdering.copy(svangerskap = CheckboxState.UNCHECKED, yrkesskade = CheckboxState.CHECKED))
+        }
         val rows = compareMappedOcrWithXml(mapped, assertNotNull(content.document)).fields.associateBy { it.path }
         assertEquals(ComparisonStatus.MATCH, rows.getValue("medisinskVurdering.hovedDiagnose[1].diagnosekode").status)
         assertEquals(ComparisonStatus.MATCH, rows.getValue("behandler.HPR").status)
@@ -240,13 +247,14 @@ class OcrXmlComparisonTest {
     @Test
     fun `harArbeidsgiver compares the XML's first word with the form's text`() {
         fun status(ocr: String, xml: String) = compareMappedOcrWithXml(
-            emptyMapped.copy(arbeidsgiver = OcrParserArbeidsgiver(harArbeidsgiver = ocr)),
+            assertNotNull(mapped(mapOf("arbeidsgiver.type" to ocr))),
             xml("arbeidsgiver.harArbeidsgiver" to xml),
         ).fields.single { it.path == "arbeidsgiver.harArbeidsgiver" }.status
         assertEquals(ComparisonStatus.NORMALIZED_MATCH, status("En arbeidsgiver", "En"))
         assertEquals(ComparisonStatus.NORMALIZED_MATCH, status("Flere arbeidsgivere", "Flere"))
         assertEquals(ComparisonStatus.NORMALIZED_MATCH, status("Én arbeidsgiver", "en"))
         assertEquals(ComparisonStatus.DIFFERENT, status("Ingen arbeidsgiver", "En"))
+        assertEquals(ComparisonStatus.UNCERTAIN, status("Kanskje", "En"))
     }
 
     @Test
@@ -263,9 +271,9 @@ class OcrXmlComparisonTest {
             "aktivitet.innspillTilArbeidsgiver" to "Example",
             "tilbakedatering.tilbakeDato" to "2026-10-02",
         )).fields.associateBy { it.path }
-        assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue("syketilfelleStartDato").status)
+        assertEquals(ComparisonStatus.MATCH, rows.getValue("syketilfelleStartDato").status)
         assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue("arbeidsgiver.harArbeidsgiver").status)
         assertEquals(ComparisonStatus.MATCH, rows.getValue("aktivitet.innspillTilArbeidsgiver").status)
-        assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue("tilbakedatering.tilbakeDato").status)
+        assertEquals(ComparisonStatus.MATCH, rows.getValue("tilbakedatering.tilbakeDato").status)
     }
 }
