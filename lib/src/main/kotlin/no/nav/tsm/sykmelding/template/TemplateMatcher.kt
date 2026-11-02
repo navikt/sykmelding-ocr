@@ -132,7 +132,7 @@ class TemplateMatcher(
         val span = Span.current()
         val pages = open().use { document ->
             if (document.numberOfPages > maxPages) {
-                span.setAttribute("matcher.error", "too many pages")
+                span.setAttribute("matcher.result", "too-many-pages")
                 return TemplateMatchResult.TooManyPages(document.numberOfPages, maxPages)
             }
 
@@ -143,8 +143,13 @@ class TemplateMatcher(
         try {
             for (template in templates) {
                 val matched = matchesTemplate(template, prepared)
-                if (matched is TemplateMatchResult.Matched) return matched
+                if (matched is TemplateMatchResult.Matched) {
+                    span.setAttribute("matcher.result", "matched")
+                    return matched
+                }
             }
+
+            span.setAttribute("matcher.result", "no-match")
             return TemplateMatchResult.NoMatch
         } finally {
             prepared.forEach { it.close() }
