@@ -1,5 +1,7 @@
 package no.nav.tsm.sykmelding.template
 
+import io.opentelemetry.api.trace.Span
+import io.opentelemetry.instrumentation.annotations.WithSpan
 import no.nav.tsm.sykmelding.utils.grayscale
 import no.nav.tsm.sykmelding.utils.loadOpenCv
 import no.nav.tsm.sykmelding.utils.toBufferedImage
@@ -107,24 +109,32 @@ class TemplateMatcher(
     private val objectMapper = jacksonObjectMapper()
     private val loaded: Map<TemplateGroup, List<LoadedTemplate>> = templates.associateWith { group -> group.pageFiles.map { load(it)} }
 
+    @WithSpan
     fun matchPdf(pdf: File): TemplateMatchResult = matchDocument { Loader.loadPDF(pdf) }
 
     /** As [matchPdf], for a PDF in memory; PDFBox reads it without temporary files. */
+    @WithSpan
     fun matchPdf(pdf: ByteArray): TemplateMatchResult = matchDocument { Loader.loadPDF(pdf) }
 
     override fun close() {
         loaded.values.flatten().forEach { it.close() }
     }
 
+    @WithSpan
     private fun matchDocument(open: () -> PDDocument): TemplateMatchResult = try {
         match(open)
     } catch (e: Exception) {
         TemplateMatchResult.Error(e)
     }
 
+    @WithSpan
     private fun match(open: () -> PDDocument): TemplateMatchResult {
+        val span = Span.current()
         val pages = open().use { document ->
-            if (document.numberOfPages > maxPages) return TemplateMatchResult.TooManyPages(document.numberOfPages, maxPages)
+            if (document.numberOfPages > maxPages) {
+                span.setAttribute("matcher.error", "too many pages")
+                return TemplateMatchResult.TooManyPages(document.numberOfPages, maxPages)
+            }
 
             pdfToImages(document)
         }
@@ -141,6 +151,7 @@ class TemplateMatcher(
         }
     }
 
+    @WithSpan
     private fun matchesTemplate(template: TemplateGroup, pages: List<PreparedPage>): TemplateMatchResult {
         val templateMatch = loaded.getValue(template).associate { templatePage ->
             val aligned = pages.firstNotNullOfOrNull { page -> matchesPage(page, templatePage) } ?: return TemplateMatchResult.NoMatch
@@ -151,6 +162,7 @@ class TemplateMatcher(
     }
 
     /** The PDF [page] aligned to [template] (gray, template size) if it is the same form page; null if not. */
+    @WithSpan
     private fun matchesPage(page: PreparedPage, template: LoadedTemplate): BufferedImage? {
         if (page.descriptors.empty() || template.descriptors.empty()) return null
 
@@ -178,6 +190,7 @@ class TemplateMatcher(
     }
 
     /** The matches of [template]'s descriptors (query) to [page]'s (train) that [methods]' filter keeps. */
+    @WithSpan
     private fun goodMatches(page: PreparedPage, template: LoadedTemplate): List<DMatch> {
         val norm = methods.detector.norm
         return when (methods.filter) {
@@ -200,6 +213,7 @@ class TemplateMatcher(
         }
     }
 
+    @WithSpan
     private fun prepare(image: BufferedImage): PreparedPage {
         val gray = grayscale(image)
         val descriptors = Mat()
@@ -207,6 +221,7 @@ class TemplateMatcher(
         return PreparedPage(gray, keypoints, descriptors)
     }
 
+    @WithSpan
     private fun load(file: File): LoadedTemplate {
         val template = objectMapper.readValue<Template>(file.readText())
         val folder = File(file.parent)
@@ -224,6 +239,7 @@ class TemplateMatcher(
      * take many times the time and gigabytes of memory per page. A detector of its own for each call, as pages are
      * prepared on several threads at once.
      */
+    @WithSpan
     private fun detectFeatures(gray: Mat, dpi: Int, descriptors: Mat): List<KeyPoint> {
         val scale = featureDpi.toDouble() / dpi
         if (scale == 1.0) return detect(gray, descriptors)
@@ -240,6 +256,7 @@ class TemplateMatcher(
         return keypoints
     }
 
+    @WithSpan
     private fun detect(image: Mat, descriptors: Mat): List<KeyPoint> = MatOfKeyPoint().use { keypoints ->
         Mat().use { mask -> methods.detector.create().detectAndCompute(image, mask, keypoints, descriptors) }
         keypoints.toList()
@@ -247,6 +264,7 @@ class TemplateMatcher(
 
     private fun pointMat(points: List<Point>): MatOfPoint2f = MatOfPoint2f(*points.toTypedArray())
 
+    @WithSpan
     private fun pdfToImages(document: PDDocument): List<BufferedImage> =
         (1..document.numberOfPages).map { page -> PdfTemplateImages.render(document, page, renderDpi) }
 
@@ -279,6 +297,7 @@ class TemplateMatcher(
 }
 private const val LINE_TOLERANCE = 6
 
+@WithSpan
 internal fun lineFit(templateLines: Mat, alignedGray: Mat): Double {
     val total = countNonZero(templateLines)
     if (total == 0) return 1.0
@@ -293,6 +312,7 @@ internal fun lineFit(templateLines: Mat, alignedGray: Mat): Double {
     }
 }
 
+@WithSpan
 internal fun formLines(gray: Mat): Mat {
     val length = maxOf(40, minOf(gray.cols(), gray.rows()) / 40).toDouble()
     return Mat().use { ink ->

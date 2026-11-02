@@ -128,6 +128,7 @@ class ParseSykmeldingOcr(
 /** Maps already-read pages exactly as production does, without matching or running OCR again. */
 object SykmeldingOcrMapping {
     /** [today] decides the century of a two-digit year in the yrkesskade date, the only date that can be long ago. */
+    @WithSpan
     fun map(templateVersion: String, pages: List<PageRead>, today: LocalDate = LocalDate.now()): OcrParserSykmelding? {
         if (templateVersion != "0.2019" && templateVersion != "03.2019") return null
         val texts =
@@ -137,6 +138,7 @@ object SykmeldingOcrMapping {
         return threePage2019(templateVersion, texts, values, checkboxes, today)
     }
 
+    @WithSpan
     private fun threePage2019(
         templateVersion: String,
         pages: List<Map<Felter, String>>,
