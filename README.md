@@ -101,3 +101,17 @@ usual, and **Load** lists the bucket again.
 
 Saving a template writes its current image to `template.png` beside the template
 JSON, overwriting the previous image.
+
+### Upgrading the Gradle wrapper version to latest
+``` bash
+./gradlew :wrapper --gradle-version latest
+```
+
+### Contact
+
+This project is maintained by [CODEOWNERS](CODEOWNERS)
+
+Questions and/or feature requests? Please create an [issue](https://github.com/navikt/sykmelding-ocr/issues)
+
+If you work in [@navikt](https://github.com/navikt) you can reach us at the Slack
+channel [#team-symfoni](https://nav-it.slack.com/archives/C07MY3KCDS5)
