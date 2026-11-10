@@ -14,8 +14,6 @@ repositories {
 dependencies {
     implementation(libs.jackson.module.kotlin)
     implementation(libs.tsm.opencv)
-    // PageRotation's orientation detection calls Tesseract directly.
-    implementation(libs.bytedeco.tesseract)
     implementation(libs.pdfbox)
     implementation(libs.google.cloud.storage)
     implementation(libs.papirsykemelding)

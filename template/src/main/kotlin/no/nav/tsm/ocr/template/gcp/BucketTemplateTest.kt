@@ -18,6 +18,8 @@ import no.nav.tsm.sykmelding.ocr.ParseSykmeldingOcr
 import no.nav.tsm.sykmelding.ocr.TESSERACT_RESOLUTIONS
 import no.nav.tsm.sykmelding.ocr.TextRegion
 import no.nav.tsm.sykmelding.ocr.skipsOcr
+import no.nav.tsm.sykmelding.template.FIELD_NUMBER_ORDER
+import no.nav.tsm.sykmelding.template.FieldCatalog
 import no.nav.tsm.sykmelding.template.MatchingMethods
 import no.nav.tsm.sykmelding.template.TemplateMatchResult
 import no.nav.tsm.sykmelding.template.TemplateMatcher
@@ -191,7 +193,7 @@ internal fun parseDpi(text: String?, range: IntRange): Int? =
     DPI_TEXT.matchEntire(text.orEmpty())?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in range }
 
 internal enum class PdfStatus(private val label: String) {
-    QUEUED("Queued"), RUNNING("Running …"), MATCHED("✓ Matched"), NO_MATCH("✗ No match"), ERROR("Error");
+    QUEUED("Queued"), RUNNING("Running …"), MATCHED("✓ Matched"), TEXT_MATCHED("✓ Text match"), NO_MATCH("✗ No match"), ERROR("Error");
 
     /** A final result rather than a run in progress. */
     val finished: Boolean get() = ordinal >= MATCHED.ordinal
@@ -211,8 +213,10 @@ internal typealias OcrFields = Map<Felter, FieldText>
 
 /**
  * One document's result. [MATCHED][PdfStatus.MATCHED]: every page of one template was found in the file, and
- * [outcomes] lists those template pages in template order. [reads] has the fields read from each of them, in the same
- * order; null when they could not be read ([message] says why). [millis] is the whole test, [ocrMillis] the OCR part.
+ * [outcomes] lists those template pages in template order. [TEXT_MATCHED][PdfStatus.TEXT_MATCHED]: no image template
+ * was, but a text template's fields were found on one page; there are no outcomes, and [message] lists what was found.
+ * [reads] has the fields read from each outcome, in the same order; null when they could not be read ([ocrError] says
+ * why). [millis] is the whole test, [ocrMillis] the OCR part.
  * [settings]: how it was tested (resolutions, matching methods); null when it was not tested (e.g. could not be downloaded).
  */
 internal class PdfTestResult(
@@ -236,8 +240,11 @@ internal class PdfTestResult(
     val templateText: String
         get() = outcomes.firstOrNull()?.let { first -> "${first.template.group}: " + outcomes.joinToString(", ") { it.template.name } }.orEmpty()
 
-    /** A few lines: which template the file is, or why it is none of them; then the fields read, if any. */
-    fun summary(): String = buildString {
+    /**
+     * A few lines: which template the file is, or why it is none of them; then the fields read, if any, in the form's
+     * order by their numbers ([numberOf]; see [fieldLines]).
+     */
+    fun summary(numberOf: (Felter) -> String? = { null }): String = buildString {
         when (status) {
             PdfStatus.QUEUED -> appendLine("Queued for testing.")
             PdfStatus.RUNNING -> appendLine(message.ifEmpty { "Testing …" })
@@ -256,7 +263,7 @@ internal class PdfTestResult(
                         "${pages.sumOf { it.values.size }} on ${pages.size} page${plural(pages.size)}")
                     outcomes.zip(pages).forEach { (outcome, page) ->
                         appendLine("  ${outcome.template.label}:")
-                        appendLine(fieldLines(page).trimEnd().prependIndent("    "))
+                        appendLine(fieldLines(page, numberOf).trimEnd().prependIndent("    "))
                     }
                 }
             }
@@ -264,11 +271,30 @@ internal class PdfTestResult(
     }
 }
 
-/** One line per field: what was read in it, with confidence; for a checkbox, its state and ink ([checkboxText]). */
-internal fun fieldLines(page: PageRead): String = buildString {
-    page.values.forEach { (field, text) ->
+/**
+ * One line per field, in the form's order by field number ([numberOf]; fields without one last): its number, then
+ * what was read in it, with confidence; for a checkbox, its state and ink ([checkboxText]).
+ */
+internal fun fieldLines(page: PageRead, numberOf: (Felter) -> String?): String = buildString {
+    val numbers = page.values.keys.associateWith(numberOf)
+    page.values.entries.sortedWith(compareBy(FIELD_NUMBER_ORDER) { numbers[it.key] }).forEach { (field, text) ->
         val value = if (field.type.skipsOcr) checkboxText(page.checkboxes[field]) else withConfidence(text.lines).ifEmpty { "–" }
-        appendLine("${"${field.navn} (${field.type})".padEnd(36)} $value")
+        appendLine("${numbers[field].orEmpty().padEnd(8)} ${"${field.navn} (${field.type})".padEnd(36)} $value")
+    }
+}
+
+internal class FieldNumbers(private val catalog: FieldCatalog = FieldCatalog()) {
+    private var modified = Long.MIN_VALUE
+    private var byId: Map<String, String> = emptyMap()
+
+    fun of(field: Felter): String? {
+        val now = catalog.file.lastModified()
+        if (now != modified) {
+            byId = runCatching { catalog.read() }.getOrDefault(emptyList())
+                .mapNotNull { definition -> definition.number?.let { definition.id to it } }.toMap()
+            modified = now
+        }
+        return byId[field.id]
     }
 }
 
@@ -329,6 +355,7 @@ internal fun testAgainstTemplates(file: File, prepared: PreparedMatcher, ocrDpi:
             val ok = parsed as? OcrResult.Parsed
             PdfTestResult(PdfStatus.MATCHED, error.orEmpty(), pages, outcomes, elapsed(), ok?.pages, ocrMillis, error, settings, ok?.sykmelding)
         }
+        is TemplateMatchResult.TextMatched -> PdfTestResult(PdfStatus.TEXT_MATCHED, textMatchText(result), pages, millis = elapsed(), settings = settings)
         TemplateMatchResult.NoMatch -> PdfTestResult(PdfStatus.NO_MATCH, "No template has every one of its pages in this file.", pages, millis = elapsed(), settings = settings)
         is TemplateMatchResult.Error -> PdfTestResult(PdfStatus.ERROR, result.exception.message ?: result.exception.toString(), pages, millis = elapsed(), settings = settings)
         is TemplateMatchResult.TooManyPages -> PdfTestResult(PdfStatus.NO_MATCH,
@@ -348,6 +375,18 @@ private fun outcome(group: TemplateGroup, index: Int, template: Template, aligne
         // The aligned page alone is still worth seeing.
         val scale = previewScale(aligned.width)
         TemplateOutcome(page, png(resized(aligned, scale)), scale)
+    }
+}
+
+
+private fun textMatchText(match: TemplateMatchResult.TextMatched): String = buildString {
+    val fields = match.template.fields
+    append("Text template ${match.template.name} on page ${match.page}: ${match.fields.size} of ${fields.size} fields found.")
+    append("\nProduction reads no text templates: it gives no match for this file.")
+    fields.forEach { field ->
+        val rows = match.fields[field]
+        val text = rows?.joinToString(" / ") { row -> row.joinToString(" ") { it.line.text } } ?: "not found"
+        append("\n${field.number.padEnd(8)} ${field.name.padEnd(36)} $text")
     }
 }
 

@@ -1,7 +1,7 @@
 package no.nav.tsm.ocr.template.gcp
 
 import org.apache.pdfbox.Loader
-import no.nav.tsm.ocr.template.template.PageRotation
+import no.nav.tsm.sykmelding.utils.PageRotation
 import no.nav.tsm.sykmelding.template.PdfTemplateImages
 import no.nav.tsm.sykmelding.template.TemplateGroup
 import no.nav.tsm.sykmelding.template.TemplateLibrary

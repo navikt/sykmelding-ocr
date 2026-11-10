@@ -1,17 +1,14 @@
 package no.nav.tsm.sykmelding.ocr
 
-import no.nav.tsm.sykmelding.utils.tempDirectory
-import no.nav.tsm.sykmelding.utils.writingToTemp
+import no.nav.tsm.sykmelding.utils.TessData
+import no.nav.tsm.sykmelding.utils.packed
 import org.bytedeco.tesseract.PageIterator
+import org.bytedeco.tesseract.ResultIterator
 import org.bytedeco.tesseract.TessBaseAPI
 import org.bytedeco.tesseract.global.tesseract.*
-import java.awt.Color
 import java.awt.Rectangle
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -100,35 +97,17 @@ data class FieldText(val lines: List<TextRegion>) {
     val text: String get() = lines.joinToString("\n") { it.text }
 }
 
-class Ocr {
 
-    internal object TessData {
-        private val auxFiles = listOf("osd")
+data class TextPart(val line: TextRegion, val words: List<TextRegion>)
 
-        private val dir: Path by lazy { tempDirectory("tessdata") }
+class Ocr(trainedData: OcrTrainedData = OcrTrainedData.NOR_FAST) {
 
-       @Synchronized
-        fun dirWith(language: String): Path {
-            (listOf(language) + auxFiles).forEach { name ->
-                val target = dir.resolve("$name.traineddata")
-                if (Files.exists(target)) return@forEach
-                val stream = TessData::class.java.getResourceAsStream("/tessdata/$name.traineddata")
-                    ?: error("Missing /tessdata/$name.traineddata on classpath")
-                val part = dir.resolve("$name.traineddata.part")
-                writingToTemp("copy the OCR model $name.traineddata to $dir") {
-                    try {
-                        stream.use { Files.copy(it, part, StandardCopyOption.REPLACE_EXISTING) }
-                        Files.move(part, target, StandardCopyOption.REPLACE_EXISTING)
-                    } finally {
-                        Files.deleteIfExists(part)
-                    }
-                }
-            }
-            return dir
-        }
+    enum class OcrTrainedData(val language: String) {
+        NOR_FAST("nor-fast"),
+        NOR_BEST("nor-best")
     }
 
-    private val tesseract: TessBaseAPI = engine()
+    private val tesseract: TessBaseAPI = engine(trainedData)
 
     companion object {
         private val engines = ConcurrentHashMap<String, TessBaseAPI>()
@@ -139,25 +118,16 @@ class Ocr {
             })
         }
 
-      private fun engine(): TessBaseAPI = engines.computeIfAbsent("nor") {
-            val path = TessData.dirWith("nor").toString()
-            val api = TessBaseAPI()
-            if (api.Init(path, "nor", OEM_LSTM_ONLY) != 0) {
-                api.close()
-                error("Could not initialize the OCR model nor")
-            }
-            api.SetPageSegMode(PSM_AUTO)
-            api
+        private fun engine(trainedData: OcrTrainedData): TessBaseAPI = engines.computeIfAbsent(trainedData.language) { language ->
+            TessData.engine(language, OEM_LSTM_ONLY).apply { SetPageSegMode(PSM_AUTO) }
         }
     }
 
-    fun parse(img: BufferedImage, psmMode: PsmMode = PsmMode.PSM_AUTO): String? {
+    fun parse(img: BufferedImage, psmMode: PsmMode = PsmMode.PSM_AUTO, dpi: Int): String? {
         val grayscale = grayscale(img)
-        val pixels = (grayscale.raster.dataBuffer as DataBufferByte).data
 
         return synchronized(tesseract) {
-            tesseract.SetPageSegMode(psmMode.value)
-            tesseract.SetImage(pixels, grayscale.width, grayscale.height, 1, grayscale.width)
+            tesseract.setPage(grayscale, psmMode, dpi)
             val textPointer = tesseract.GetUTF8Text()
             check(textPointer != null && !textPointer.isNull) { "OCR recognition failed" }
             try {
@@ -171,25 +141,30 @@ class Ocr {
 
     internal fun detectText(image: BufferedImage, psmMode: PsmMode, dpi: Int?, allowedCharacters: String?): List<TextRegion> {
         val page = grayscale(image)
-        return withEngine { engine ->
+        return withEngine(allowedCharacters) { engine ->
             engine.setPage(page, psmMode, dpi)
-            try {
-                allowedCharacters?.let {
-                    check(engine.SetVariable(WHITELIST, it)) { "Tesseract does not know $WHITELIST" }
-                }
-                check(engine.Recognize(null) == 0) { "OCR recognition failed" }
-                engine.readLines()
-            } finally {
-                // Back to every character, for the next caller of the shared engine.
-                if (allowedCharacters != null) engine.SetVariable(WHITELIST, "")
-            }
+            check(engine.Recognize(null) == 0) { "OCR recognition failed" }
+            engine.readRegions(RIL_TEXTLINE)
         }
     }
 
-    internal fun <T> withEngine(block: (TessBaseAPI) -> T): T = synchronized(tesseract) {
+    fun detectParts(image: BufferedImage, dpi: Int? = null, allowedCharacters: String? = null, psmMode: PsmMode = PsmMode.PSM_SPARSE_TEXT): List<TextPart> {
+        val page = grayscale(image)
+        return withEngine(allowedCharacters) { engine ->
+            engine.setPage(page, psmMode, dpi)
+            check(engine.Recognize(null) == 0) { "OCR recognition failed" }
+            engine.readParts()
+        }
+    }
+
+    internal fun <T> withEngine(allowedCharacters: String? = null, block: (TessBaseAPI) -> T): T = synchronized(tesseract) {
         try {
+            allowedCharacters?.let {
+                check(tesseract.SetVariable(WHITELIST, it)) { "Tesseract does not know $WHITELIST" }
+            }
             block(tesseract)
         } finally {
+            if (allowedCharacters != null) tesseract.SetVariable(WHITELIST, "")
             tesseract.Clear()
         }
     }
@@ -203,30 +178,63 @@ internal fun TessBaseAPI.setPage(page: BufferedImage, psmMode: PsmMode, dpi: Int
 }
 
 
-private fun TessBaseAPI.readLines(): List<TextRegion> {
+private fun TessBaseAPI.readParts(): List<TextPart> = withIterator { iterator ->
+    val regions = Regions(iterator)
+    val parts = mutableListOf<TextPart>()
+    var line: TextRegion? = null
+    var words = mutableListOf<TextRegion>()
+    fun endLine() {
+        line?.let { parts += TextPart(it, words.ifEmpty { listOf(it) }) }
+    }
+    do {
+        if (iterator.IsAtBeginningOf(RIL_TEXTLINE)) {
+            endLine()
+            line = regions.at(RIL_TEXTLINE)
+            words = mutableListOf()
+        }
+        regions.at(RIL_WORD)?.let { words += it }
+    } while (iterator.Next(RIL_WORD))
+    endLine()
+    parts
+}
+
+private fun TessBaseAPI.readRegions(level: Int): List<TextRegion> = withIterator { iterator ->
+    val regions = Regions(iterator)
+    buildList {
+        do {
+            regions.at(level)?.let { add(it) }
+        } while (iterator.Next(level))
+    }
+}
+
+private fun <T> TessBaseAPI.withIterator(read: (ResultIterator) -> List<T>): List<T> {
     val iterator = GetIterator()
     if (iterator == null || iterator.isNull) return emptyList()
     try {
-        val left = IntArray(1)
-        val top = IntArray(1)
-        val right = IntArray(1)
-        val bottom = IntArray(1)
-        return buildList {
-            do {
-                if (iterator.Empty(RIL_TEXTLINE) || !iterator.BoundingBox(RIL_TEXTLINE, left, top, right, bottom)) continue
-                val textPointer = iterator.GetUTF8Text(RIL_TEXTLINE)
-                val text = if (textPointer == null || textPointer.isNull) "" else try {
-                    textPointer.getString(Charsets.UTF_8)
-                } finally {
-                    TessDeleteText(textPointer)
-                }
-                if (text.isBlank()) continue
-                val (baseline, angle) = lineBaseline(iterator, left[0], right[0], bottom[0])
-                add(TextRegion(left[0], top[0], right[0] - left[0], bottom[0] - top[0], text.trim(), iterator.Confidence(RIL_TEXTLINE), baseline, angle))
-            } while (iterator.Next(RIL_TEXTLINE))
-        }
+        return read(iterator)
     } finally {
         TessResultIteratorDelete(iterator)
+    }
+}
+
+private class Regions(private val iterator: ResultIterator) {
+    private val left = IntArray(1)
+    private val top = IntArray(1)
+    private val right = IntArray(1)
+    private val bottom = IntArray(1)
+
+    /** What the iterator is at, at [level]; null when nothing is there or it reads as blank. */
+    fun at(level: Int): TextRegion? {
+        if (iterator.Empty(level) || !iterator.BoundingBox(level, left, top, right, bottom)) return null
+        val textPointer = iterator.GetUTF8Text(level)
+        val text = if (textPointer == null || textPointer.isNull) "" else try {
+            textPointer.getString(Charsets.UTF_8)
+        } finally {
+            TessDeleteText(textPointer)
+        }
+        if (text.isBlank()) return null
+        val (baseline, angle) = lineBaseline(iterator, left[0], right[0], bottom[0])
+        return TextRegion(left[0], top[0], right[0] - left[0], bottom[0] - top[0], text.trim(), iterator.Confidence(level), baseline, angle)
     }
 }
 
@@ -247,16 +255,4 @@ internal fun lineBaseline(iterator: PageIterator, left: Int, right: Int, bottom:
 /** Tesseract's setting for the only characters it may read; empty for all. */
 private const val WHITELIST = "tessedit_char_whitelist"
 
-/** [image] as 8-bit grey on white, the form Tesseract is given: transparency is put on white, colour made grey. */
-internal fun grayscale(image: BufferedImage): BufferedImage {
-    val grayscale = BufferedImage(image.width, image.height, BufferedImage.TYPE_BYTE_GRAY)
-    val graphics = grayscale.createGraphics()
-    try {
-        graphics.color = Color.WHITE
-        graphics.fillRect(0, 0, grayscale.width, grayscale.height)
-        graphics.drawImage(image, 0, 0, null)
-    } finally {
-        graphics.dispose()
-    }
-    return grayscale
-}
+internal fun grayscale(image: BufferedImage): BufferedImage = packed(image, BufferedImage.TYPE_BYTE_GRAY)
