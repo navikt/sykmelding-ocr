@@ -75,6 +75,7 @@ class ParseSykmeldingOcr(
         }
 
         TemplateMatchResult.NoMatch -> OcrResult.NoMatch
+        is TemplateMatchResult.TextMatched -> OcrResult.NoMatch
         is TemplateMatchResult.TooManyPages -> OcrResult.TooManyPages(match.pages, match.maxPages)
         is TemplateMatchResult.Error -> OcrResult.Failed(
             match.exception.message ?: match.exception.toString(),
@@ -131,6 +132,11 @@ object SykmeldingOcrMapping {
     @WithSpan
     fun map(templateVersion: String, pages: List<PageRead>, today: LocalDate = LocalDate.now()): OcrParserSykmelding? {
         if (templateVersion != "0.2019" && templateVersion != "03.2019") return null
+        return mapByName(templateVersion, pages, today)
+    }
+
+    @WithSpan
+    fun mapByName(templateVersion: String, pages: List<PageRead>, today: LocalDate = LocalDate.now()): OcrParserSykmelding {
         val texts =
             pages.map { page -> page.values.filterKeys { !it.type.skipsOcr }.mapValues { (_, text) -> text.text } }
         val values = byFieldName(texts)

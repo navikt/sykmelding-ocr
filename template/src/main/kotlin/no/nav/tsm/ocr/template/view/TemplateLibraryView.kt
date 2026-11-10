@@ -1,5 +1,6 @@
 package no.nav.tsm.ocr.template.view
 
+import no.nav.tsm.sykmelding.pipeline.TextTemplates
 import no.nav.tsm.sykmelding.template.TemplateGroup
 import no.nav.tsm.sykmelding.template.TemplateLibrary
 import java.awt.BorderLayout
@@ -22,12 +23,23 @@ private data class PageEntry(val file: File) {
     override fun toString() = "${file.parentFile.name} / ${file.name}"
 }
 
+private object TextTemplatesEntry {
+    override fun toString() = "Text templates"
+}
+
+private data class TextTemplateEntry(val name: String, val fields: Int = 0, val global: Int = 0, val problem: String? = null) {
+    override fun toString() = if (problem != null) "$name (could not be read: $problem)"
+        else "$name ($fields fields, $global with a global field)"
+}
+
 class TemplateLibraryView(
     private val onPageDeleted: (File) -> Unit = {},
     private val onPageRenumbered: (File, File) -> Unit = { _, _ -> },
+    private val onOpenTextTemplate: (String?) -> Unit = {},
     private val onOpenPage: (File) -> Unit,
 ) : JPanel(BorderLayout()) {
     private val library = TemplateLibrary()
+    private val textTemplates = TextTemplates()
     val tree = JTree(DefaultMutableTreeNode("Templates"))
     private val status = JLabel()
     private val addPage = JButton("Add page").apply {
@@ -68,13 +80,13 @@ class TemplateLibraryView(
         tree.addTreeSelectionListener {
             addPage.isEnabled = selectedGroup() != null
             importPage.isEnabled = selectedGroup() != null
-            openPage.isEnabled = selectedNode()?.userObject is PageEntry
+            openPage.isEnabled = selectedNode()?.userObject.let { it is PageEntry || it is TextTemplateEntry || it === TextTemplatesEntry }
             deletePage.isEnabled = selectedNode()?.userObject is PageEntry
             renumberPage.isEnabled = selectedNode()?.userObject is PageEntry
         }
         tree.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2 && tree.getPathForLocation(e.x, e.y) == tree.selectionPath) openSelectedPage()
+                if (e.clickCount == 2 && tree.getPathForLocation(e.x, e.y) == tree.selectionPath && selectedNode()?.isLeaf == true) openSelectedPage()
             }
         })
         tree.inputMap.put(KeyStroke.getKeyStroke("ENTER"), "openPage")
@@ -115,13 +127,24 @@ class TemplateLibraryView(
                     if (file == selectFile?.absoluteFile) selection = TreePath(page.path)
                 }
             }
+            val texts = textTemplates.names()
+            root.add(DefaultMutableTreeNode(TextTemplatesEntry).apply {
+                texts.forEach { name -> add(DefaultMutableTreeNode(textTemplateEntry(name))) }
+            })
             tree.model = DefaultTreeModel(root)
             var row = 0
             while (row < tree.rowCount) tree.expandRow(row++)
             tree.selectionPath = selection
-            status.text = if (groups.isEmpty()) "No templates yet. Create a template such as 03.2019."
-                else "${groups.size} templates, ${groups.sumOf { it.manifest.pages.size }} pages - ${library.directory.absolutePath}"
+            status.text = (if (groups.isEmpty()) "No templates yet. Create a template such as 03.2019."
+                else "${groups.size} templates, ${groups.sumOf { it.manifest.pages.size }} pages - ${library.directory.absolutePath}") +
+                "; ${texts.size} text template${if (texts.size == 1) "" else "s"} - ${textTemplates.directory.absolutePath}"
         }.onFailure { showError("Could not load templates", it) }
+    }
+
+    private fun textTemplateEntry(name: String): TextTemplateEntry = try {
+        textTemplates.read(name).let { TextTemplateEntry(name, it.fields.size, it.fields.count { field -> field.field != null }) }
+    } catch (error: Exception) {
+        TextTemplateEntry(name, problem = error.message)
     }
 
     fun createTemplate() {
@@ -174,8 +197,11 @@ class TemplateLibraryView(
     }
 
     private fun openSelectedPage() {
-        val page = selectedNode()?.userObject as? PageEntry ?: return
-        onOpenPage(page.file)
+        when (val entry = selectedNode()?.userObject) {
+            is PageEntry -> onOpenPage(entry.file)
+            is TextTemplateEntry -> onOpenTextTemplate(entry.name)
+            TextTemplatesEntry -> onOpenTextTemplate(null)
+        }
     }
 
     private fun choosePageNumber(initial: Int): Int? {

@@ -26,9 +26,9 @@ import no.nav.tsm.ocr.template.template.ImageClearArea
 import no.nav.tsm.sykmelding.template.Template
 import no.nav.tsm.sykmelding.template.TemplateFiles
 import no.nav.tsm.sykmelding.template.PdfTemplateImages
-import no.nav.tsm.ocr.template.template.PageOrientation
-import no.nav.tsm.ocr.template.template.PageRotation
-import no.nav.tsm.ocr.template.template.OrientationGuess
+import no.nav.tsm.sykmelding.utils.PageOrientation
+import no.nav.tsm.sykmelding.utils.PageRotation
+import no.nav.tsm.sykmelding.utils.OrientationGuess
 import no.nav.tsm.ocr.template.template.clearTemplateAreas
 import org.opencv.core.Mat
 import java.awt.BasicStroke
@@ -89,6 +89,11 @@ class TemplateView(
     private val catalogList = JList(catalogFields)
     private val catalogName = JTextField(16)
     private val catalogType = JComboBox(FieldType.entries.toTypedArray())
+    private val catalogNumber = JTextField(8).apply {
+        toolTipText = "The field's number on the form, like 3.1.2: text templates find the global field of a field by it. Empty for none."
+    }
+    private val catalogDescription = JTextField(16).apply { toolTipText = "What the form calls the field, like Kode." }
+    private val catalogReceivedName = JTextField(16).apply { toolTipText = "The field's name in ReceivedSykmelding, like kode." }
     private val catalogStatus = JLabel("Shared field definitions")
     private val clickToAssign = JCheckBox("Click cell to assign field").apply {
         addActionListener {
@@ -472,15 +477,23 @@ class TemplateView(
                 val definition = value as? FieldDefinition
                 val assigned = definition != null && (0 until fields.size()).any { fields[it].id == definition.id }
                 return super.getListCellRendererComponent(list,
-                    (if (definition?.type == FieldType.CHECKBOX) "☐ " else "") +
-                        definition?.navn.orEmpty() + if (assigned) " (assigned)" else "", index, selected, focus)
-                    .also { toolTipText = definition?.id }
+                    (if (definition?.type == FieldType.CHECKBOX) "☐ " else "") + (definition?.number?.let { "$it  " } ?: "") +
+                        definition?.navn.orEmpty() + (definition?.description?.let { " — $it" } ?: "") +
+                        if (assigned) " (assigned)" else "", index, selected, focus)
+                    .also {
+                        toolTipText = definition?.let { d ->
+                            d.id + (d.receivedSykmeldingName?.let { name -> " · ReceivedSykmelding: $name" } ?: "")
+                        }
+                    }
             }
         }
         catalogList.addListSelectionListener {
             if (!it.valueIsAdjusting) {
                 catalogName.text = catalogList.selectedValue?.navn.orEmpty()
                 catalogType.selectedItem = catalogList.selectedValue?.type ?: FieldType.TEXT
+                catalogNumber.text = catalogList.selectedValue?.number.orEmpty()
+                catalogDescription.text = catalogList.selectedValue?.description.orEmpty()
+                catalogReceivedName.text = catalogList.selectedValue?.receivedSykmeldingName.orEmpty()
             }
         }
         add(catalogStatus.apply { toolTipText = fieldCatalog.file.absolutePath }, BorderLayout.NORTH)
@@ -491,6 +504,12 @@ class TemplateView(
             add(catalogName)
             add(JLabel("Field type:").apply { labelFor = catalogType })
             add(catalogType)
+            add(JLabel("Field number on the form (like 3.1.2):").apply { labelFor = catalogNumber })
+            add(catalogNumber)
+            add(JLabel("Description on the form:").apply { labelFor = catalogDescription })
+            add(catalogDescription)
+            add(JLabel("ReceivedSykmelding name:").apply { labelFor = catalogReceivedName })
+            add(catalogReceivedName)
             add(JPanel(GridLayout(0, 2, 4, 4)).apply {
                 add(button("Add global field") {
                     runCatching { fieldCatalog.add(catalogName.text, catalogType.selectedItem as FieldType) }
@@ -515,6 +534,12 @@ class TemplateView(
                     runCatching { fieldCatalog.setType(selected.id, catalogType.selectedItem as FieldType) }
                         .onSuccess { refreshCatalog(selected.id) }
                         .onFailure { showError("Kunne ikke endre felttype", it) }
+                })
+                add(button("Save number and description") {
+                    val selected = catalogList.selectedValue ?: return@button
+                    runCatching { fieldCatalog.setDetails(selected.id, catalogNumber.text, catalogDescription.text, catalogReceivedName.text) }
+                        .onSuccess { refreshCatalog(selected.id) }
+                        .onFailure { showError("Kunne ikke endre feltnummer eller beskrivelse", it) }
                 })
             })
             add(button("Assign to selected cell") { assignCatalogField() })
@@ -680,7 +705,7 @@ class TemplateView(
             setLocationRelativeTo(this@TemplateView)
         }
         val worker = object : SwingWorker<Pair<OrientationGuess, BufferedImage>, Unit>() {
-            override fun doInBackground() = PageOrientation.detect(source).let { it to it.rotation.apply(source) }
+            override fun doInBackground() = PageOrientation.detect(source, PdfTemplateImages.DPI).let { it to it.rotation.apply(source) }
             override fun done() { progress.dispose() }
         }
         worker.execute()

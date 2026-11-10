@@ -75,7 +75,7 @@ fun toMat(bufferedImage: BufferedImage): Mat {
 }
 
 /** [image] itself when it is [type] without row padding, as OpenCV copies it; else a copy drawn as [type] on white. */
-private fun packed(image: BufferedImage, type: Int): BufferedImage {
+internal fun packed(image: BufferedImage, type: Int): BufferedImage {
     val channels = if (type == BufferedImage.TYPE_BYTE_GRAY) 1 else 3
     if (image.type == type && image.raster.parent == null &&
         (image.raster.dataBuffer as DataBufferByte).data.size == image.width * image.height * channels) return image

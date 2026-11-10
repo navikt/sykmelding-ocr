@@ -11,6 +11,9 @@ import no.nav.tsm.sykmelding.model.CheckboxState
 import no.nav.tsm.sykmelding.ocr.CheckboxReading
 import no.nav.tsm.sykmelding.ocr.FieldSegment
 import no.nav.tsm.sykmelding.ocr.skipsOcr
+import no.nav.tsm.sykmelding.pipeline.TextTemplate
+import no.nav.tsm.sykmelding.pipeline.TextTemplates
+import no.nav.tsm.sykmelding.template.FieldCatalog
 import no.nav.tsm.sykmelding.template.HomographyMethod
 import no.nav.tsm.sykmelding.template.KeypointDetector
 import no.nav.tsm.sykmelding.template.MatchFilter
@@ -193,10 +196,11 @@ class BucketTemplateTestView(
     }
     private val stop = JButton("Stop").apply { isEnabled = false; addActionListener { requestStop() } }
     private val templatesLabel = JLabel(" ")
-    /** Folder names of the templates to test against; null = all, including templates added later. Only changed on the EDT while no run is going. */
+    /** Folder names of the image templates to test against; null = all, including templates added later. Only changed on the EDT while no run is going. */
     @Volatile private var chosenTemplates: Set<String>? = settings?.get(CHOSEN_TEMPLATES, null)?.split('\n')?.filter { it.isNotEmpty() }?.toSet()
+    @Volatile private var chosenTextTemplates: Set<String>? = settings?.get(CHOSEN_TEXT_TEMPLATES, null)?.split('\n')?.filter { it.isNotEmpty() }?.toSet()
     private val chooseTemplates = JButton("Choose templates…").apply {
-        toolTipText = "Test against one, several or all templates."
+        toolTipText = "Test against one, several or all templates: image templates, and the text templates tried when none of those matches."
         addActionListener { chooseTemplates() }
     }
     private val reloadTemplates = JButton("Reload templates").apply {
@@ -217,6 +221,7 @@ class BucketTemplateTestView(
     private val outcomes = OutcomeTableModel()
     private val outcomeTable = JTable(outcomes)
     private val fieldTable = OcrFieldsPanel()
+    private val fieldNumbers = FieldNumbers()
     private val images = GuideImagePanel().apply {
         describeBox = { describeField(it.box) }
         describeRegion = { describeSegmentAt(it.box) }
@@ -286,6 +291,12 @@ class BucketTemplateTestView(
             "or add them to an existing one. Each page becomes a template image at 400 DPI, without fields yet.</html>"
         addActionListener { createTemplateFromShown() }
     }
+    private val ocrLab = JButton("OCR lab…").apply {
+        isEnabled = false
+        toolTipText = "Open the PDF in the preview in a window for trying OCR on its pages."
+        addActionListener { openOcrLab() }
+    }
+    private val ocrLabItem = JMenuItem("OCR lab…").apply { addActionListener { openOcrLab() } }
     private val downloadItem = JMenuItem("Download…").apply { addActionListener { downloadShown() } }
     private val createTemplateItem = JMenuItem("Create template from…").apply { addActionListener { createTemplateFromShown() } }
     private var downloading = false
@@ -363,7 +374,7 @@ class BucketTemplateTestView(
             add(JPanel(BorderLayout(6, 0)).apply {
                 border = BorderFactory.createEmptyBorder(0, 4, 0, 0)
                 add(shownName, BorderLayout.NORTH)
-                add(JPanel(WrapLayout()).apply { add(download); add(createTemplate) }, BorderLayout.CENTER)
+                add(JPanel(WrapLayout()).apply { add(download); add(createTemplate); add(ocrLab) }, BorderLayout.CENTER)
             }, BorderLayout.NORTH)
             val info = JScrollPane(details).apply { border = BorderFactory.createTitledBorder("Details") }
             add(splitPane(JSplitPane.VERTICAL_SPLIT, info, result, location = 0.26, weight = 0.0), BorderLayout.CENTER)
@@ -479,6 +490,7 @@ class BucketTemplateTestView(
             addSeparator()
             add(downloadItem)
             add(createTemplateItem)
+            add(ocrLabItem)
             add(JMenuItem("Show downloaded file").apply {
                 toolTipText = "Show the previewed file in the download folder (it is downloaded when it is previewed)."
                 addActionListener { revealShown() }
@@ -794,16 +806,40 @@ class BucketTemplateTestView(
      */
     private fun matcherFor(say: (String) -> Unit, testSettings: TestSettings): Pair<PreparedMatcher, List<String>> {
         val pages = loadTemplates()
-        SwingUtilities.invokeLater { if (!closed) showTemplates(pages) }
-        prepared?.let { if (it.fingerprint == pages.fingerprint && testSettings.matchesAs(it.matcher)) return it to pages.problems }
+        val (textTemplates, textProblems) = readTextTemplates()
+        val fingerprint = pages.fingerprint + textTemplates.map { it.toString() }
+        val problems = pages.problems + textProblems
+        val textNames = textTemplates.map { it.name }
+        SwingUtilities.invokeLater { if (!closed) showTemplates(pages, textNames) }
+        prepared?.let { if (it.fingerprint == fingerprint && testSettings.matchesAs(it.matcher)) return it to problems }
         closePrepared()
         say("Preparing the matcher: detecting the ${testSettings.methods.detector.label} features of ${pages.pages.size} " +
             "template page${plural(pages.pages.size)} at ${testSettings.featureDpi} DPI once …")
         val chosen = chosenTemplates
         val groups = templateGroups().filter { chosen == null || it.file.parentFile.name in chosen }
-        val matcher = TemplateMatcher(library, templates = groups, renderDpi = testSettings.renderDpi,
+        val matcher = TemplateMatcher(library, templates = groups, textTemplates = textTemplates, renderDpi = testSettings.renderDpi,
             featureDpi = testSettings.featureDpi, methods = testSettings.methods, tolerance = testSettings.tolerance)
-        return PreparedMatcher(pages.fingerprint, matcher).also { prepared = it } to pages.problems
+        return PreparedMatcher(fingerprint, matcher).also { prepared = it } to problems
+    }
+
+    private fun readTextTemplates(): Pair<List<TextTemplate>, List<String>> {
+        val store = TextTemplates()
+        val problems = mutableListOf<String>()
+        val names = try { store.names() } catch (error: Exception) {
+            return emptyList<TextTemplate>() to listOf("Text templates in ${store.directory}: ${error.message}")
+        }
+        val catalog = try { FieldCatalog().read() } catch (error: Exception) {
+            problems += "Global fields: ${error.message}"
+            emptyList()
+        }
+        val chosen = chosenTextTemplates
+        val templates = names.filter { chosen == null || it in chosen }.mapNotNull { name ->
+            try { store.read(name).synced(catalog) } catch (error: Exception) {
+                problems += "Text template $name: ${error.message}"
+                null
+            }
+        }
+        return templates to problems
     }
 
     /** The resolutions typed or chosen, and the matching methods chosen; null, after saying why, when a resolution is not allowed. */
@@ -851,27 +887,51 @@ class BucketTemplateTestView(
         if (job != null) return
         closePrepared()
         val pages = loadTemplates()
-        showTemplates(pages)
-        status.text = "Read ${pages.description} from ${library.directory.absolutePath}. Their features are detected at the next test."
+        val textNames = chosenTextNames()
+        showTemplates(pages, textNames)
+        status.text = "Read ${pages.description} from ${library.directory.absolutePath}, and ${textTemplatesText(textNames)}. " +
+            "The image templates' features are detected at the next test."
     }
 
-    /** The chosen templates as they are now. */
+    /** The chosen image templates as they are now. */
     private fun loadTemplates(): LibraryPages = LibraryPages.load(library, chosenTemplates)
 
-    /** Asks which templates to test against; at least one must be ticked. */
+    private fun textTemplateNames(): List<String> = runCatching { TextTemplates().names() }.getOrDefault(emptyList())
+
+    private fun chosenTextNames(): List<String> {
+        val chosen = chosenTextTemplates
+        return textTemplateNames().filter { chosen == null || it in chosen }
+    }
+
+    private fun textTemplatesText(names: List<String>): String =
+        if (names.isEmpty()) "no text templates" else "${names.size} text template${plural(names.size)}"
+
+    /** Asks which templates to test against, the image templates and then the text templates; at least one must be ticked. */
     private fun chooseTemplates() {
         if (job != null) return
         val groups = templateGroups()
-        if (groups.isEmpty()) { status.text = "No templates in ${library.directory.absolutePath}."; return }
-        val boxes = groups.map { group ->
+        val textNames = textTemplateNames()
+        if (groups.isEmpty() && textNames.isEmpty()) { status.text = "No templates in ${library.directory.absolutePath}."; return }
+        val imageBoxes = groups.map { group ->
             val folder = group.file.parentFile.name
             JCheckBox("${group.manifest.navn} (${group.pageFiles.size} page${plural(group.pageFiles.size)})",
                 chosenTemplates?.contains(folder) ?: true).apply { putClientProperty(FOLDER, folder) }
         }
+        val textBoxes = textNames.map { name ->
+            JCheckBox("$name (text template)", chosenTextTemplates?.contains(name) ?: true).apply { putClientProperty(TEXT_TEMPLATE, name) }
+        }
+        val boxes = imageBoxes + textBoxes
+        val list = JPanel(GridLayout(0, 1, 0, 2)).apply {
+            imageBoxes.forEach(::add)
+            if (textBoxes.isNotEmpty()) {
+                add(JLabel("Text templates, tried when no image template matches (not used in production):"))
+                textBoxes.forEach(::add)
+            }
+        }
         val panel = JPanel(BorderLayout(0, 6)).apply {
             add(JLabel("Test the PDFs against these templates:"), BorderLayout.NORTH)
-            add(JScrollPane(JPanel(GridLayout(0, 1, 0, 2)).apply { boxes.forEach(::add) }).apply {
-                preferredSize = Dimension(360, minOf(400, 28 * boxes.size + 10))
+            add(JScrollPane(list).apply {
+                preferredSize = Dimension(460, minOf(400, 28 * list.componentCount + 10))
             }, BorderLayout.CENTER)
             add(flowRow(
                 JButton("All").apply { addActionListener { boxes.forEach { it.isSelected = true } } },
@@ -884,24 +944,35 @@ class BucketTemplateTestView(
             if (boxes.any { it.isSelected }) break
             JOptionPane.showMessageDialog(this, "Choose at least one template.", "Choose templates", JOptionPane.WARNING_MESSAGE)
         }
-        setChosenTemplates(if (boxes.all { it.isSelected }) null else boxes.filter { it.isSelected }.map { it.getClientProperty(FOLDER) as String }.toSet())
+        fun chosen(of: List<JCheckBox>, key: String): Set<String>? =
+            if (of.all { it.isSelected }) null else of.filter { it.isSelected }.map { it.getClientProperty(key) as String }.toSet()
+        setChosenTemplates(chosen(imageBoxes, FOLDER), chosen(textBoxes, TEXT_TEMPLATE))
     }
 
-    /** Null = all templates. Results already shown keep the templates they were tested against. */
-    internal fun setChosenTemplates(folders: Set<String>?) {
+    /**
+     * The image templates ([folders]) and text templates ([textTemplates]) to test against; null = all of that kind.
+     * Results already shown keep the templates they were tested against.
+     */
+    internal fun setChosenTemplates(folders: Set<String>?, textTemplates: Set<String>?) {
+        if (folders != chosenTemplates || textTemplates != chosenTextTemplates) closePrepared()
         chosenTemplates = folders
+        chosenTextTemplates = textTemplates
         if (folders == null) settings?.remove(CHOSEN_TEMPLATES) else settings?.put(CHOSEN_TEMPLATES, folders.sorted().joinToString("\n"))
+        if (textTemplates == null) settings?.remove(CHOSEN_TEXT_TEMPLATES)
+        else settings?.put(CHOSEN_TEXT_TEMPLATES, textTemplates.sorted().joinToString("\n"))
         val pages = loadTemplates()
-        showTemplates(pages)
-        status.text = "Testing against ${pages.description}."
+        val textNames = chosenTextNames()
+        showTemplates(pages, textNames)
+        status.text = "Testing against ${pages.description}, and ${textTemplatesText(textNames)}."
     }
 
-    private fun showTemplates(pages: LibraryPages) {
-        val chosen = chosenTemplates
-        templatesLabel.text = "Templates" + (if (chosen == null) " (all)" else " (${pages.groups} chosen)") + ": ${pages.description}"
-        templatesLabel.foreground = if (pages.pages.isEmpty()) ERROR_COLOR else null
-        templatesLabel.toolTipText = "<html>" + (pages.pages.map { escape(it.label) } + pages.problems.map { "<i>Not tested: ${escape(it)}</i>" })
-            .joinToString("<br>") + "</html>"
+    private fun showTemplates(pages: LibraryPages, textNames: List<String> = chosenTextNames()) {
+        val all = chosenTemplates == null && chosenTextTemplates == null
+        templatesLabel.text = "Templates" + (if (all) " (all)" else " (${pages.groups + textNames.size} chosen)") +
+            ": ${pages.description}, ${textTemplatesText(textNames)}"
+        templatesLabel.foreground = if (pages.pages.isEmpty() && textNames.isEmpty()) ERROR_COLOR else null
+        templatesLabel.toolTipText = "<html>" + (pages.pages.map { escape(it.label) } + textNames.map { "Text template: ${escape(it)}" } +
+            pages.problems.map { "<i>Not tested: ${escape(it)}</i>" }).joinToString("<br>") + "</html>"
     }
 
     /** On the EDT: stores (or with null, forgets) a file's result and refreshes what shows it. */
@@ -938,7 +1009,7 @@ class BucketTemplateTestView(
                 line("Producer", pdf.producer)
             }
             append('\n')
-            append(results[files.key(file)]?.summary() ?: "Not tested yet.")
+            append(results[files.key(file)]?.summary(fieldNumbers::of) ?: "Not tested yet.")
         }
         details.caretPosition = 0
     }
@@ -1056,7 +1127,7 @@ class BucketTemplateTestView(
 
     private fun showOutcome(outcome: TemplateOutcome?) {
         shownOutcome = outcome
-        fieldTable.show(shownFields(), shownOcr(), shownSegments(), shownCheckboxes(), shownResult)
+        fieldTable.show(shownFields(), shownOcr(), shownSegments(), shownCheckboxes(), shownResult, fieldNumbers::of)
         if (outcome == null) {
             images.panes = emptyList()
             showSegments.isEnabled = false
@@ -1064,7 +1135,7 @@ class BucketTemplateTestView(
             outcomeText.text = when {
                 shown == null -> "Select a file in the list."
                 result == null -> "Not tested yet. Click \"Test selected\" to match the file with the production matcher."
-                else -> result.summary()
+                else -> result.summary(fieldNumbers::of)
             }
             outcomeText.caretPosition = 0
             return
@@ -1092,7 +1163,7 @@ class BucketTemplateTestView(
             if (read == null) appendLine(shownResult?.ocrError ?: "Fields: not read.")
             else {
                 appendLine("Fields (${read.values.size}) — [how sure Tesseract is of each line]:")
-                append(fieldLines(read))
+                append(fieldLines(read, fieldNumbers::of))
                 append(leftOutSegments(segments))
             }
         }
@@ -1344,14 +1415,25 @@ class BucketTemplateTestView(
         if (creatingTemplate) return
         creatingTemplate = true
         updateControls()
+        readShown(file, current, finished = { creatingTemplate = false; if (!closed) updateControls() }) {
+            askAndCreateTemplate(file, it, pageCount)
+        }
+    }
+
+    private fun openOcrLab() {
+        val file = shown ?: return
+        val current = source ?: return
+        readShown(file, current) { OcrLabView.open(file.fileName, it) }
+    }
+
+    private fun readShown(file: BucketFile, current: BucketSource, finished: () -> Unit = {}, use: (ByteArray) -> Unit) {
         status.text = "Reading ${file.fileName} …"
         object : SwingWorker<ByteArray, Unit>() {
             override fun doInBackground(): ByteArray = fetch(current, file)
 
             override fun done() {
-                creatingTemplate = false
+                finished()
                 if (closed) return
-                updateControls()
                 val bytes = try {
                     get()
                 } catch (error: Exception) {
@@ -1360,14 +1442,14 @@ class BucketTemplateTestView(
                     return
                 }
                 status.text = " "
-                askAndCreateTemplate(file, bytes, pageCount)
+                use(bytes)
             }
         }.execute()
     }
 
     private fun askAndCreateTemplate(file: BucketFile, bytes: ByteArray, pageCount: Int) {
-        // Which PDF page is which template page is not known; a matched file is assumed to have the template's pages in order.
-        val tested = results[files.key(file)]?.takeIf { it.status == PdfStatus.MATCHED || it.status == PdfStatus.NO_MATCH }
+        val tested = results[files.key(file)]
+            ?.takeIf { it.status == PdfStatus.MATCHED || it.status == PdfStatus.TEXT_MATCHED || it.status == PdfStatus.NO_MATCH }
         val matchedPages = tested?.outcomes?.associate { it.template.position to "✓ ${it.template.label}" }.orEmpty()
         val input = TemplateDialogInput(
             fileName = file.fileName,
@@ -1474,9 +1556,12 @@ class BucketTemplateTestView(
         val canDownload = !downloading && source != null && file != null
         download.isEnabled = canDownload
         downloadItem.isEnabled = canDownload
-        val canCreate = !creatingTemplate && source != null && shownPdf?.pages?.isNotEmpty() == true
+        val hasPdf = source != null && shownPdf?.pages?.isNotEmpty() == true
+        val canCreate = !creatingTemplate && hasPdf
         createTemplate.isEnabled = canCreate
         createTemplateItem.isEnabled = canCreate
+        ocrLab.isEnabled = hasPdf
+        ocrLabItem.isEnabled = hasPdf
     }
 
     private fun updateSummary() {
@@ -1491,7 +1576,8 @@ class BucketTemplateTestView(
             else -> "Finished in $seconds s:"
         }
         summary.text = "$state $finished of ${runKeys.size} file${plural(runKeys.size)} tested — " +
-            "${counts[PdfStatus.MATCHED] ?: 0} matched, ${counts[PdfStatus.NO_MATCH] ?: 0} no match, ${counts[PdfStatus.ERROR] ?: 0} errors"
+            "${counts[PdfStatus.MATCHED] ?: 0} matched, ${counts[PdfStatus.TEXT_MATCHED] ?: 0} text match (no match in production), " +
+            "${counts[PdfStatus.NO_MATCH] ?: 0} no match, ${counts[PdfStatus.ERROR] ?: 0} errors"
         val perTemplate = runResults.mapNotNull { result -> result.outcomes.firstOrNull()?.template?.group }.groupingBy { it }.eachCount()
         summary.toolTipText = if (perTemplate.isEmpty()) null else "<html>Files per template in this run:<br>" +
             perTemplate.entries.sortedByDescending { it.value }.joinToString("<br>") { "${escape(it.key)}: ${it.value}" } + "</html>"
@@ -1658,6 +1744,7 @@ class BucketTemplateTestView(
         private const val RUN_COUNT = "templateTestRunCount"
         private const val DOWNLOAD_FOLDER = "downloadFolder"
         private const val CHOSEN_TEMPLATES = "templateTestTemplates"
+        private const val CHOSEN_TEXT_TEMPLATES = "templateTestTextTemplates"
         private const val RENDER_DPI = "templateTestRenderDpi"
         private const val FEATURE_DPI = "templateTestFeatureDpi"
         private const val OCR_DPI = "templateTestOcrDpi"
@@ -1666,6 +1753,7 @@ class BucketTemplateTestView(
         private const val HOMOGRAPHY = "templateTestHomography"
         private const val TOLERANCE = "templateTestTolerance"
         private const val FOLDER = "templateFolder"
+        private const val TEXT_TEMPLATE = "textTemplate"
         private const val MAX_RUN = 100_000
         private const val PREVIEW_DELAY_MS = 150
         private const val RESULT_TAB = 1
@@ -1699,6 +1787,7 @@ private enum class ShowFilter(private val label: String, val accepts: (PdfTestRe
     UNTESTED("Untested", { it?.status?.finished != true }),
     TESTED("Tested", { it?.status?.finished == true }),
     MATCHED("✓ Matched", { it?.status == PdfStatus.MATCHED }),
+    TEXT_MATCHED("✓ Text match", { it?.status == PdfStatus.TEXT_MATCHED }),
     NO_MATCH("✗ No match", { it?.status == PdfStatus.NO_MATCH }),
     ERROR("Errors", { it?.status == PdfStatus.ERROR });
 
@@ -1740,14 +1829,16 @@ private class OutcomeTableModel : AbstractTableModel() {
 }
 
 private val MATCH_COLOR = Color(20, 130, 50)
+private val TEXT_MATCH_COLOR = Color(0, 120, 170)
 private val NO_MATCH_COLOR = Color(195, 30, 30)
 private val ERROR_COLOR = Color(150, 60, 170)
 
 private fun statusColor(status: PdfStatus?): Color = when (status) {
     PdfStatus.MATCHED -> MATCH_COLOR
+    PdfStatus.TEXT_MATCHED -> TEXT_MATCH_COLOR
     PdfStatus.NO_MATCH -> NO_MATCH_COLOR
     PdfStatus.ERROR -> ERROR_COLOR
-    else -> Color.GRAY
+    PdfStatus.QUEUED, PdfStatus.RUNNING, null -> Color.GRAY
 }
 
 private fun secondsRenderer() = object : DefaultTableCellRenderer() {
@@ -1761,4 +1852,4 @@ private fun resultKey(bucket: String, file: BucketFile) = "$bucket/${file.name}#
 private fun flowRow(vararg components: Component) =
     JPanel(FlowLayout(FlowLayout.LEFT, 6, 2)).apply { components.forEach { add(it) } }
 
-private fun escape(text: String) = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+internal fun escape(text: String) = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

@@ -18,9 +18,11 @@ never turns an unreadable value into an empty one and never picks between readin
 diagnosis codes up in the ICD-10 and ICPC-2 lists of `no.nav.tsm:diagnoser`, which it exposes as an `api` dependency;
 an ICPC-2B code comes back `Unreadable`.
 
-The lib needs Java 25 and a writable `java.io.tmpdir` (`/tmp` by default). On first use it copies the templates, the
-OCR model and OpenCV's native library there, since they must be files, and JavaCPP extracts Tesseract's native
-libraries to `~/.javacpp/cache`, or to `java.io.tmpdir` when the home folder is not writable. The PDF itself is not
+The lib needs Java 25 and a writable `java.io.tmpdir` (`/tmp` by default). On first use it copies the templates and
+OpenCV's native library there, since they must be files, and JavaCPP extracts Tesseract's native libraries to
+`~/.javacpp/cache`, or to `java.io.tmpdir` when the home folder is not writable. The OCR models are read from the jar
+into memory. `Ocr()` reads with the fast Norwegian model; `Ocr(Ocr.OcrTrainedData.NOR_BEST)` with the slower, more
+accurate one. The PDF itself is not
 written to disk. OpenCV comes from [tsm-opencv](https://github.com/navikt/tsm-opencv) (`no.nav.tsm:tsm-opencv`, on
 GitHub Packages, also through `https://github-package-registry-mirror.gc.nav.no/cached/maven-release`), built for
 Linux x86-64 and macOS arm64 only.

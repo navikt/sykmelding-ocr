@@ -120,7 +120,7 @@ class LayoutFieldOcrTest {
         assertEquals("Ryggsmerter", read.getValue(form.mainText).text)
         assertEquals("ICPC-2", read.getValue(form.system).text)
         // Reading letters after code and number fields: the allowed characters were reset.
-        assertEquals("Test\n", ocr.parse(ImageIO.read(javaClass.getResourceAsStream("/img.png"))))
+        assertEquals("Test\n", ocr.parse(ImageIO.read(javaClass.getResourceAsStream("/img.png")), dpi = IMG_DPI))
         read.forEach { (field, text) ->
             text.lines.forEach { line ->
                 assertTrue(field.rectangle.contains(Rectangle(line.x, line.y, line.width, line.height)), "$line in ${field.navn}")

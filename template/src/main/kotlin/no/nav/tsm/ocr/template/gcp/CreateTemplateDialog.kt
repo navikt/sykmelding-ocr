@@ -3,9 +3,10 @@ package no.nav.tsm.ocr.template.gcp
 import org.apache.pdfbox.Loader
 import org.apache.pdfbox.rendering.ImageType
 import org.apache.pdfbox.rendering.PDFRenderer
-import no.nav.tsm.ocr.template.template.OrientationGuess
-import no.nav.tsm.ocr.template.template.PageOrientation
-import no.nav.tsm.ocr.template.template.PageRotation
+import no.nav.tsm.sykmelding.utils.OrientationGuess
+import no.nav.tsm.sykmelding.utils.PageOrientation
+import no.nav.tsm.sykmelding.utils.PageRotation
+import no.nav.tsm.sykmelding.template.PdfTemplateImages
 import no.nav.tsm.sykmelding.template.TemplateGroup
 import no.nav.tsm.sykmelding.template.TemplateLibrary
 import java.awt.BorderLayout
@@ -389,13 +390,18 @@ internal class CreateTemplateDialog(
         }
     }
 
-    /** [pages] rendered for text (400 DPI, gray) one at a time, and their rotation found with [PageOrientation.detect]. */
+    /** [pages] rendered for text ([PdfTemplateImages.DPI], gray) one at a time, and their rotation found with [PageOrientation.detect]. */
     private inner class OrientationWorker(private val pages: List<Int>) : SwingWorker<Unit, Pair<Int, Result<OrientationGuess>>>() {
         override fun doInBackground() = Loader.loadPDF(input.pdf).use { document ->
             val renderer = PDFRenderer(document)
             for (page in pages) {
                 if (isCancelled) return@use
-                publish(page to runCatching { PageOrientation.detect(renderer.renderImageWithDPI(page - 1, 400.toFloat(), ImageType.GRAY)) })
+                publish(page to runCatching {
+                    PageOrientation.detect(
+                        renderer.renderImageWithDPI(page - 1, PdfTemplateImages.DPI.toFloat(), ImageType.GRAY),
+                        dpi = PdfTemplateImages.DPI,
+                    )
+                })
             }
         }
 

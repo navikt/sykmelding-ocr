@@ -41,24 +41,26 @@ dependencies {
     implementation(libs.jackson.module.kotlin)
 }
 
-// A jar's folders cannot be listed, so templates/index.txt lists every template file for TemplateLibrary.fromResources().
+// A jar's folders cannot be listed, so templates/index.txt lists every template file for TemplateLibrary.fromResources(),
 val templateIndex = tasks.register("templateIndex") {
-    description = "Lists the template files in templates/index.txt"
-    val templates = layout.projectDirectory.dir("src/main/resources/templates")
+    description = "Lists the template files in templates/index.txt and the text templates in text-templates/index.txt"
+    val folders = listOf("templates", "text-templates").map { layout.projectDirectory.dir("src/main/resources/$it") }
     val output = layout.buildDirectory.dir("generated/templateIndex")
-    inputs.dir(templates)
+    folders.forEach { inputs.files(fileTree(it)) }
     outputs.dir(output)
     doLast {
-        val root = templates.asFile
-        val files = root.walk()
-            .onEnter { it == root || !it.name.startsWith(".") }
-            .filter { it.isFile && !it.name.startsWith(".") }
-            .map { it.relativeTo(root).invariantSeparatorsPath }
-            .sorted()
-            .toList()
-        output.get().file("templates/index.txt").asFile.apply {
-            parentFile.mkdirs()
-            writeText(files.joinToString("\n", postfix = "\n"))
+        for (folder in folders) {
+            val root = folder.asFile
+            val files = root.walk()
+                .onEnter { it == root || !it.name.startsWith(".") }
+                .filter { it.isFile && !it.name.startsWith(".") }
+                .map { it.relativeTo(root).invariantSeparatorsPath }
+                .sorted()
+                .toList()
+            output.get().file("${root.name}/index.txt").asFile.apply {
+                parentFile.mkdirs()
+                writeText(files.joinToString("\n", postfix = "\n"))
+            }
         }
     }
 }
@@ -75,6 +77,10 @@ java {
         languageVersion = JavaLanguageVersion.of(25)
         withSourcesJar()
     }
+}
+
+tasks.named<Jar>("sourcesJar") {
+    exclude("tessdata/**")
 }
 
 tasks.named("build") {

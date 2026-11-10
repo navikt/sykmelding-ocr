@@ -2,6 +2,12 @@ package no.nav.tsm.sykmelding.template
 
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.instrumentation.annotations.WithSpan
+import no.nav.tsm.sykmelding.ocr.Ocr
+import no.nav.tsm.sykmelding.ocr.TextPart
+import no.nav.tsm.sykmelding.pipeline.LineField
+import no.nav.tsm.sykmelding.pipeline.CustomTextTemplateParser
+import no.nav.tsm.sykmelding.pipeline.TextTemplate
+import no.nav.tsm.sykmelding.utils.PageOrientation
 import no.nav.tsm.sykmelding.utils.grayscale
 import no.nav.tsm.sykmelding.utils.loadOpenCv
 import no.nav.tsm.sykmelding.utils.toBufferedImage
@@ -49,6 +55,8 @@ sealed interface TemplateMatchResult {
     data class Matched(val template: TemplateGroup,
                        val templateMatch: Map<Template, BufferedImage>
     ) : TemplateMatchResult
+
+    data class TextMatched(val template: TextTemplate, val page: Int, val fields: Map<LineField, List<List<TextPart>>>) : TemplateMatchResult
     data object NoMatch : TemplateMatchResult
     data class Error(val exception: Exception) : TemplateMatchResult
     data class TooManyPages(val pages: Int, val maxPages: Int) : TemplateMatchResult
@@ -87,6 +95,7 @@ class TemplateMatcher(
     library: TemplateLibrary = TemplateLibrary.fromResources(),
     private val maxPages: Int = DEFAULT_MAX_PAGES,
     private val templates: List<TemplateGroup> = library.list(),
+    private val textTemplates: List<TextTemplate> = emptyList(),
     val renderDpi: Int = PdfTemplateImages.DPI,
     val featureDpi: Int = DEFAULT_FEATURE_DPI,
     val methods: MatchingMethods = MatchingMethods.PRODUCTION,
@@ -149,11 +158,35 @@ class TemplateMatcher(
                 }
             }
 
-            span.setAttribute("matcher.result", "no-match")
-            return TemplateMatchResult.NoMatch
+            if (textTemplates.isNotEmpty()) {
+                matchText(prepared.map { textParts(it) })?.let { matched ->
+                    span.setAttribute("matcher.result", "text-matched")
+                    span.setAttribute("matcher.text.template", matched.template.name)
+                    span.setAttribute("matcher.text.fields", "${matched.fields.size}/${matched.template.fields.size}")
+                    return matched
+                }
+            }
         } finally {
             prepared.forEach { it.close() }
         }
+
+        span.setAttribute("matcher.result", "no-match")
+        return TemplateMatchResult.NoMatch
+    }
+
+    @WithSpan
+    private fun matchText(pages: List<List<TextPart>>): TemplateMatchResult.TextMatched? =
+        textTemplates.firstNotNullOfOrNull { template ->
+            pages.withIndex().firstNotNullOfOrNull { (index, parts) ->
+                CustomTextTemplateParser.parse(parts, template).takeIf { template.matches(it) }
+                    ?.let { fields -> TemplateMatchResult.TextMatched(template, index + 1, fields) }
+            }
+        }
+
+    private fun textParts(page: PreparedPage): List<TextPart> {
+        val gray = toBufferedImage(page.gray)
+        val upright = PageOrientation.detect(gray, renderDpi).rotation.apply(gray)
+        return Ocr().detectParts(upright, renderDpi)
     }
 
     @WithSpan
