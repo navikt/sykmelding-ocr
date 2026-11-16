@@ -3,7 +3,9 @@ package no.nav.tsm.sykmelding.ocr
 import no.nav.tsm.diagnoser.Diagnose
 import no.nav.tsm.diagnoser.ICD10
 import no.nav.tsm.diagnoser.ICPC2
+import no.nav.tsm.sykmelding.model.ArbeidsrelatertArsakType
 import no.nav.tsm.sykmelding.model.HarArbeidsgiver
+import no.nav.tsm.sykmelding.model.MedisinskArsakType
 import no.nav.tsm.sykmelding.model.OcrCrossChecked
 import no.nav.tsm.sykmelding.model.OcrReading
 import no.nav.tsm.sykmelding.model.OcrValue
@@ -127,25 +129,50 @@ internal fun parseTelefon(text: String?): OcrValue<String>? {
     return if (TELEFON.matches(telefon)) OcrValue.Read(telefon, trimmed) else OcrValue.Unreadable(trimmed, "not a phone number")
 }
 
-/** Field 2.1 by its first word, with accents and case ignored: "En arbeisgiver" (the form's own spelling), "Flere …", "Ingen …". */
-internal fun parseHarArbeidsgiver(text: String?): OcrValue<HarArbeidsgiver>? {
-    val trimmed = text.trimmedOrNull() ?: return null
-    val word = trimmed.split(WHITESPACE).first().trimEnd { !it.isLetter() }
-        .let { Normalizer.normalize(it, Normalizer.Form.NFD) }
-        .replace(MARKS, "")
-        .lowercase()
-    return when (word) {
-        "en" -> OcrValue.Read(HarArbeidsgiver.EN_ARBEIDSGIVER, trimmed)
-        "flere" -> OcrValue.Read(HarArbeidsgiver.FLERE_ARBEIDSGIVERE, trimmed)
-        "ingen" -> OcrValue.Read(HarArbeidsgiver.INGEN_ARBEIDSGIVER, trimmed)
+internal fun parseHarArbeidsgiver(input: String?): OcrValue<HarArbeidsgiver>? {
+    val trimmed = input.trimmedOrNull() ?: return null
+    val words = Normalizer.normalize(trimmed, Normalizer.Form.NFD).replace(MARKS, "").lowercase()
+        .split(WHITESPACE).map { word -> word.trim { !it.isLetter() } }
+    val answers = words.filterIndexed { index, _ -> index == 0 || words.getOrNull(index + 1)?.startsWith("arbei") == true }
+    return when {
+        "ingen" in answers -> OcrValue.Read(HarArbeidsgiver.INGEN_ARBEIDSGIVER, trimmed)
+        "flere" in answers -> OcrValue.Read(HarArbeidsgiver.FLERE_ARBEIDSGIVERE, trimmed)
+        "en" in answers -> OcrValue.Read(HarArbeidsgiver.EN_ARBEIDSGIVER, trimmed)
         else -> OcrValue.Unreadable(trimmed, "not En, Flere or Ingen")
     }
+}
+
+internal fun parseMedisinskArsakGrunn(input: String?): OcrValue<MedisinskArsakType>? {
+    val trimmed = input.trimmedOrNull() ?: return null
+    return oneArsak(MedisinskArsakType.fraTekst(trimmed), trimmed, "medisinsk årsak")
+}
+
+internal fun parseArbeidsrelatertArsakGrunn(input: String?): OcrValue<ArbeidsrelatertArsakType>? {
+    val trimmed = input.trimmedOrNull() ?: return null
+    return oneArsak(ArbeidsrelatertArsakType.fraTekst(trimmed), trimmed, "arbeidsrelatert årsak")
+}
+
+private fun <T> oneArsak(found: List<T>, text: String, kind: String): OcrValue<T> = when (found.size) {
+    1 -> OcrValue.Read(found.single(), text)
+    0 -> OcrValue.Unreadable(text, "not a known $kind")
+    else -> OcrValue.Unreadable(text, "more than one $kind: ${found.joinToString()}")
 }
 
 /** A name, with every run of whitespace inside it read as one space. */
 internal fun parseName(text: String?): OcrValue<String>? {
     val trimmed = text.trimmedOrNull() ?: return null
     return OcrValue.Read(trimmed.replace(WHITESPACE, " "), trimmed)
+}
+
+internal fun parseFullName(text: String?): Pair<OcrCrossChecked<String>, OcrCrossChecked<String>> {
+    val trimmed = text?.trim().orEmpty()
+    val names = trimmed.split(",").map { it.trim() }.takeIf { it.size == 2 }
+    fun name(index: Int, reason: String): OcrCrossChecked<String> {
+        val value: OcrValue<String> = names?.get(index)?.takeIf { it.isNotEmpty() }?.let { OcrValue.Read(it, trimmed) }
+            ?: OcrValue.Unreadable(trimmed, reason)
+        return OcrCrossChecked(value, emptyList(), 0)
+    }
+    return Pair(name(1, "Could not find first name"), name(0, "Could not find last name"))
 }
 
 internal fun isDiagnoseSystem(system: String?): Boolean =
@@ -188,7 +215,7 @@ internal fun crossCheckFnr(readings: List<OcrReading<String>>): OcrCrossChecked<
     return when {
         reads.isEmpty() -> OcrCrossChecked(readings.firstOrNull()?.value, readings, 0)
         reads.distinctBy { it.value.valueOrNull() }.size == 1 -> OcrCrossChecked(reads.first().value, readings, reads.size)
-        else -> OcrCrossChecked(OcrValue.Unreadable(readings.first().value.text, "different fnr: ${reads.listed()}"), readings, 0)
+        else -> OcrCrossChecked(OcrValue.Unreadable(readings.first().value.text, "different fnr"), readings, 0)
     }
 }
 

@@ -27,6 +27,11 @@ class DoOcrResultTest {
     }
 
     @Test
+    fun `a sykmelding on a form not yet supported is NotYetSupported`() {
+        assertEquals(OcrResult.NotYetSupported, parser.doOcr(TemplateMatchResult.NotYetSupported(2)))
+    }
+
+    @Test
     fun `too many pages is TooManyPages`() {
         assertEquals(OcrResult.TooManyPages(9, 4), parser.doOcr(TemplateMatchResult.TooManyPages(9, 4)))
     }

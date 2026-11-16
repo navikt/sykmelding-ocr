@@ -1,20 +1,23 @@
-package no.nav.tsm.ocr.template.template
+package no.nav.tsm.sykmelding.utils
 
-import no.nav.tsm.sykmelding.utils.estimateSkew
-import no.nav.tsm.sykmelding.utils.toMat
-import no.nav.tsm.sykmelding.utils.use
 import org.bytedeco.javacpp.BytePointer
 import org.bytedeco.javacpp.FloatPointer
 import org.bytedeco.javacpp.IntPointer
 import org.bytedeco.javacpp.PointerPointer
+import org.bytedeco.leptonica.PIX
+import org.bytedeco.leptonica.global.leptonica.pixCreate
+import org.bytedeco.leptonica.global.leptonica.pixDestroy
+import org.bytedeco.leptonica.global.leptonica.pixGetData
+import org.bytedeco.leptonica.global.leptonica.pixGetWpl
+import org.bytedeco.leptonica.global.leptonica.pixSetResolution
 import org.bytedeco.tesseract.TessBaseAPI
+import org.bytedeco.tesseract.global.tesseract.OEM_DEFAULT
 import org.bytedeco.tesseract.global.tesseract.PSM_OSD_ONLY
 import java.awt.Color
 import java.awt.RenderingHints
 import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferByte
-import java.nio.file.Files
 import kotlin.math.abs
 
 /**
@@ -106,47 +109,42 @@ class OrientationGuess(val rotation: PageRotation, val orientation: Int?, val co
  * 300 DPI. The OSD engine is created on first use and shared; detections run one at a time.
  */
 object PageOrientation {
+    /** The resolution OSD and the tilt estimate are tuned for, and plenty for a form's print. */
+    const val DPI = 300
     /** Tesseract's orientation confidence below which the page is left as it is; upright form pages score about 12. */
     const val MIN_CONFIDENCE = 3f
 
     private val engine: TessBaseAPI by lazy {
-        val directory = Files.createTempDirectory("tessdata-osd")
-        val model = directory.resolve("osd.traineddata")
-        val stream = PageOrientation::class.java.getResourceAsStream("/tessdata/osd.traineddata")
-            ?: error("Missing /tessdata/osd.traineddata on the classpath")
-        stream.use { Files.copy(it, model) }
-        listOf(model, directory).forEach { it.toFile().deleteOnExit() }
-        TessBaseAPI().apply {
-            check(Init(directory.toString(), "osd") == 0) { "Could not start Tesseract's orientation detection" }
+        TessData.engine("osd", OEM_DEFAULT).apply {
             SetPageSegMode(PSM_OSD_ONLY)
             Runtime.getRuntime().addShutdownHook(Thread { synchronized(this) { End() } })
         }
     }
 
-    /** [page] should be at about 300 DPI: OSD reads letter shapes, and the tilt needs the text rows. */
-    fun detect(page: BufferedImage): OrientationGuess {
-        val gray = gray(page)
-        val (orientation, confidence) = orientation(gray)
+    fun detect(page: BufferedImage, dpi: Int): OrientationGuess {
+        val gray = packed(page, BufferedImage.TYPE_BYTE_GRAY)
+        val (orientation, confidence) = orientation(gray, dpi)
         val turns = if (orientation != null && confidence != null && confidence >= MIN_CONFIDENCE) (4 - orientation / 90) % 4 else 0
-        val upright = PageRotation(turns).apply(gray).let(::gray)
+        val upright = packed(PageRotation(turns).apply(gray), BufferedImage.TYPE_BYTE_GRAY)
         val skew = toMat(upright).use { estimateSkew(it) }
         return OrientationGuess(PageRotation(turns, -skew), orientation, confidence, skew)
     }
 
-    private fun orientation(gray: BufferedImage): Pair<Int?, Float?> {
-        val bytes = (gray.raster.dataBuffer as DataBufferByte).data
+    private fun orientation(gray: BufferedImage, dpi: Int): Pair<Int?, Float?> {
         val api = engine
         return synchronized(api) {
             IntPointer(1L).use { degrees ->
                 FloatPointer(1L).use { confidence ->
                     PointerPointer<BytePointer>(1L).use { script ->
                         FloatPointer(1L).use { scriptConfidence ->
+                            val pix = pixOf(gray, dpi)
                             try {
-                                api.SetImage(bytes, gray.width, gray.height, 1, gray.width)
+                                api.SetImage(pix)
                                 if (api.DetectOrientationScript(degrees, confidence, script, scriptConfidence)) degrees.get() to confidence.get()
                                 else null to null
                             } finally {
                                 api.Clear()
+                                pixDestroy(pix)
                             }
                         }
                     }
@@ -155,14 +153,20 @@ object PageOrientation {
         }
     }
 
-    /** An 8-bit gray copy without row padding, as Tesseract and OpenCV read it. */
-    private fun gray(image: BufferedImage): BufferedImage {
-        if (image.type == BufferedImage.TYPE_BYTE_GRAY && image.raster.parent == null &&
-            (image.raster.dataBuffer as DataBufferByte).data.size == image.width * image.height) return image
-        return BufferedImage(image.width, image.height, BufferedImage.TYPE_BYTE_GRAY).apply {
-            createGraphics().let { g ->
-                try { g.color = Color.WHITE; g.fillRect(0, 0, width, height); g.drawImage(image, 0, 0, null) } finally { g.dispose() }
+    private fun pixOf(gray: BufferedImage, dpi: Int): PIX {
+        val bytes = (gray.raster.dataBuffer as DataBufferByte).data
+        val pix = pixCreate(gray.width, gray.height, 8)
+        check(pix != null && !pix.isNull) { "Could not make a ${gray.width}×${gray.height} image for OSD" }
+        val wordsPerRow = pixGetWpl(pix)
+        val words = IntArray(wordsPerRow * gray.height)
+        for (y in 0 until gray.height) {
+            for (x in 0 until gray.width) {
+                val word = y * wordsPerRow + x / 4
+                words[word] = words[word] or ((bytes[y * gray.width + x].toInt() and 0xFF) shl (24 - 8 * (x % 4)))
             }
         }
+        pixGetData(pix).put(words, 0, words.size)
+        pixSetResolution(pix, dpi, dpi)
+        return pix
     }
 }

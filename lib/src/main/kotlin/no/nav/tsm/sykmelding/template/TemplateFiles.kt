@@ -11,6 +11,12 @@ import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 object TemplateFiles {
     private val mapper = jacksonObjectMapper()
 
+    fun fileName(name: String, what: String): String {
+        val trimmed = name.trim()
+        require(trimmed.isNotEmpty() && !trimmed.startsWith(".") && trimmed.none { it in "/\\:" }) { "Not a usable $what name: '$name'" }
+        return trimmed
+    }
+
     fun read(file: File): Template {
         val template = mapper.readValue<Template>(file)
         val directory = file.absoluteFile.parentFile

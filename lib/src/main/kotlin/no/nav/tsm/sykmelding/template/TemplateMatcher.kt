@@ -2,6 +2,9 @@ package no.nav.tsm.sykmelding.template
 
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.instrumentation.annotations.WithSpan
+import no.nav.tsm.sykmelding.ocr.OcrResult
+import no.nav.tsm.sykmelding.ocr.TextPage
+import no.nav.tsm.sykmelding.utils.PageOrientation
 import no.nav.tsm.sykmelding.utils.grayscale
 import no.nav.tsm.sykmelding.utils.loadOpenCv
 import no.nav.tsm.sykmelding.utils.toBufferedImage
@@ -49,7 +52,10 @@ sealed interface TemplateMatchResult {
     data class Matched(val template: TemplateGroup,
                        val templateMatch: Map<Template, BufferedImage>
     ) : TemplateMatchResult
+
+    data class TextMatched(val template: TextTemplate, val page: Int, val result: OcrResult.Parsed) : TemplateMatchResult
     data object NoMatch : TemplateMatchResult
+    data class NotYetSupported(val page: Int) : TemplateMatchResult
     data class Error(val exception: Exception) : TemplateMatchResult
     data class TooManyPages(val pages: Int, val maxPages: Int) : TemplateMatchResult
 }
@@ -87,7 +93,8 @@ class TemplateMatcher(
     library: TemplateLibrary = TemplateLibrary.fromResources(),
     private val maxPages: Int = DEFAULT_MAX_PAGES,
     private val templates: List<TemplateGroup> = library.list(),
-    val renderDpi: Int = PdfTemplateImages.DPI,
+    private val textTemplates: List<TextTemplate> = TextTemplates.fromResources(),
+    val renderDpi: Int = DEFAULT_RENDER_DPI,
     val featureDpi: Int = DEFAULT_FEATURE_DPI,
     val methods: MatchingMethods = MatchingMethods.PRODUCTION,
     tolerance: Double? = null,
@@ -149,12 +156,38 @@ class TemplateMatcher(
                 }
             }
 
-            span.setAttribute("matcher.result", "no-match")
-            return TemplateMatchResult.NoMatch
+            if (textTemplates.isNotEmpty()) {
+                val matchedText = if (renderDpi == TEXT_DPI) matchText(pages.map { lazy { textPage(it) } }) else open().use { document ->
+                    matchText(pages.indices.map { index -> lazy { textPage(PdfTemplateImages.render(document, index + 1, TEXT_DPI)) } })
+                }
+                matchedText?.let { matched ->
+                    span.setAttribute("matcher.result", if (matched is TemplateMatchResult.TextMatched) "text-matched" else "not-yet-supported")
+                    if (matched is TemplateMatchResult.TextMatched) span.setAttribute("matcher.text.template", matched.template.name)
+                    return matched
+                }
+            }
         } finally {
             prepared.forEach { it.close() }
         }
+
+        span.setAttribute("matcher.result", "no-match")
+        return TemplateMatchResult.NoMatch
     }
+
+    @WithSpan
+    private fun matchText(pages: List<Lazy<TextPage>>): TemplateMatchResult? {
+        var notYetSupported: Int? = null
+        for (template in textTemplates) {
+            for ((index, page) in pages.withIndex()) {
+                val read = page.value.read(template)
+                (read.result as? OcrResult.Parsed)?.let { return TemplateMatchResult.TextMatched(template, index + 1, it) }
+                if (read.result is OcrResult.NotYetSupported && notYetSupported == null) notYetSupported = index + 1
+            }
+        }
+        return notYetSupported?.let { TemplateMatchResult.NotYetSupported(it) }
+    }
+
+    private fun textPage(page: BufferedImage) = TextPage(PageOrientation.detect(page, TEXT_DPI).rotation.apply(page), TEXT_DPI)
 
     @WithSpan
     private fun matchesTemplate(template: TemplateGroup, pages: List<PreparedPage>): TemplateMatchResult {
@@ -208,7 +241,10 @@ class TemplateMatcher(
                     .filter { it.size == 2 && it[0].distance < RATIO * it[1].distance }
                     .map { it[0] }
             }
-            MatchFilter.CROSS_CHECK -> MatOfDMatch().use { BFMatcher(norm, true).match(template.descriptors, page.descriptors, it); it.toList() }
+            MatchFilter.CROSS_CHECK -> MatOfDMatch().use { matches ->
+                BFMatcher(norm, true).match(template.descriptors, page.descriptors, matches)
+                matches.toList()
+            }
         }
     }
 
@@ -275,8 +311,10 @@ class TemplateMatcher(
 
     companion object {
         const val DEFAULT_MAX_PAGES = 5
+        const val DEFAULT_RENDER_DPI = 300
         /** The resolution features are found at, unless another is given: the pages scaled down to it. */
         const val DEFAULT_FEATURE_DPI = 100
+        const val TEXT_DPI = PageOrientation.DPI
         /** Lowe's ratio: the best match must be closer than this share of the second best. */
         private const val RATIO = 0.75f
         private const val MIN_MATCHES = 8

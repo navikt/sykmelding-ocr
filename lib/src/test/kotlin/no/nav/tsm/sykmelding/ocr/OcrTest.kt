@@ -21,7 +21,7 @@ class OcrTest {
     fun `OCR returns test text`() {
         val ocr = Ocr()
         val img = ImageIO.read(javaClass.getResourceAsStream("/img.png"))
-        val result = ocr.parse(img)
+        val result = ocr.parse(img, dpi = IMG_DPI)
         assertEquals("Test\n", result)
     }
 
@@ -46,7 +46,7 @@ class OcrTest {
             } finally {
                 graphics.dispose()
             }
-            assertEquals("Test\n", ocr.parse(img), "BufferedImage type $type")
+            assertEquals("Test\n", ocr.parse(img, dpi = IMG_DPI), "BufferedImage type $type")
         }
     }
 
@@ -103,15 +103,18 @@ class OcrTest {
         val crops: List<Crop> = objectMapper.readValue(javaClass.getResourceAsStream("/fields.json")!!.readBytes())
         val page = renderPages(pdf).first()
         crops.forEach {
-            val result = ocr.parse(page.getSubimage(it.x, it.y, it.width, it.height), PsmMode.PSM_SINGLE_LINE)
+            val result = ocr.parse(page.getSubimage(it.x, it.y, it.width, it.height), PsmMode.PSM_SINGLE_LINE, PAGE_DPI)
             assertEquals("R74", result?.trim(), it.name)
         }
     }
 
 }
 
+internal const val IMG_DPI = 72
+private const val PAGE_DPI = 400
+
 private fun renderPages(pdf: ByteArray): List<BufferedImage> =
     Loader.loadPDF(pdf).use { document ->
         val renderer = PDFRenderer(document)
-        (0 until 1).map { renderer.renderImageWithDPI(it, 400.0f) }
+        (0 until 1).map { renderer.renderImageWithDPI(it, PAGE_DPI.toFloat()) }
     }

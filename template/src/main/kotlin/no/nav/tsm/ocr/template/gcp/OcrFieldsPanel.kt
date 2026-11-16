@@ -6,6 +6,7 @@ import no.nav.tsm.sykmelding.ocr.CheckboxReading
 import no.nav.tsm.sykmelding.ocr.FieldSegment
 import no.nav.tsm.sykmelding.ocr.FieldText
 import no.nav.tsm.sykmelding.ocr.skipsOcr
+import no.nav.tsm.sykmelding.template.FIELD_NUMBER_ORDER
 import no.nav.tsm.sykmelding.template.Felter
 import java.awt.BorderLayout
 import java.awt.Color
@@ -25,6 +26,7 @@ internal data class OcrFieldRow(
     val value: FieldText?,
     val leftOut: List<String>,
     val checkbox: CheckboxReading? = null,
+    val number: String? = null,
 ) {
     val isCheckbox: Boolean get() = this.field.type.skipsOcr
 
@@ -53,8 +55,9 @@ internal class OcrFieldsPanel : JPanel(BorderLayout()) {
         override fun getColumnName(column: Int) = COLUMNS[column]
         override fun getValueAt(row: Int, column: Int): String = rows[row].let {
             when (column) {
-                0 -> "${it.field.navn} (${it.field.type})"
-                1 -> value(it)
+                0 -> it.number.orEmpty()
+                1 -> "${it.field.navn} (${it.field.type})"
+                2 -> value(it)
                 else -> it.leftOut.joinToString("\n")
             }
         }
@@ -74,12 +77,12 @@ internal class OcrFieldsPanel : JPanel(BorderLayout()) {
                     else -> table.background
                 }
                 foreground = if (selected) table.selectionForeground else table.foreground
-                toolTipText = if (shown.isCheckbox && column == 1) "<html>${escape(text)}<br>${escape(CHECKBOX_RULE)}</html>" else text
+                toolTipText = if (shown.isCheckbox && column == 2) "<html>${escape(text)}<br>${escape(CHECKBOX_RULE)}</html>" else text
                 return this
             }
         })
         autoResizeMode = JTable.AUTO_RESIZE_OFF
-        listOf(260, 320, 420).forEachIndexed { index, width -> columnModel.getColumn(index).preferredWidth = width }
+        listOf(60, 260, 320, 420).forEachIndexed { index, width -> columnModel.getColumn(index).preferredWidth = width }
     }
 
     init {
@@ -87,16 +90,17 @@ internal class OcrFieldsPanel : JPanel(BorderLayout()) {
         add(JScrollPane(table), BorderLayout.CENTER)
     }
 
-   fun show(
+    fun show(
         fields: List<Felter>,
         values: OcrFields?,
         segments: List<FieldSegment>?,
         checkboxes: Map<Felter, CheckboxReading>?,
         result: PdfTestResult?,
+        numberOf: (Felter) -> String?,
     ) {
         allRows = fields.map {
-            OcrFieldRow(it, values?.get(it), segments?.let { all -> leftOutOf(it, all) }.orEmpty(), checkboxes?.get(it))
-        }
+            OcrFieldRow(it, values?.get(it), segments?.let { all -> leftOutOf(it, all) }.orEmpty(), checkboxes?.get(it), numberOf(it))
+        }.sortedWith(compareBy(FIELD_NUMBER_ORDER) { it.number })
         timing.text = when {
             result == null -> "No OCR results"
             result.reads == null -> result.ocrError ?: "Fields not read"
@@ -128,7 +132,7 @@ internal class OcrFieldsPanel : JPanel(BorderLayout()) {
     private fun escape(text: String) = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     private companion object {
-        val COLUMNS = listOf("Field", "Value", "Why left out")
+        val COLUMNS = listOf("No.", "Field", "Value", "Why left out")
         val DROPPED = Color(255, 225, 190)
         val UNCERTAIN = Color(255, 205, 230)
     }

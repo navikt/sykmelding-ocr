@@ -2,6 +2,7 @@ package no.nav.tsm.ocr.template.view
 
 import no.nav.tsm.ocr.template.gcp.BucketTemplateTestView
 import no.nav.tsm.ocr.template.gcp.GcpBucketView
+import no.nav.tsm.ocr.template.pipeline.TextTemplateEditor
 import no.nav.tsm.sykmelding.template.Template
 import no.nav.tsm.sykmelding.template.TemplateFiles
 import java.awt.BorderLayout
@@ -26,10 +27,11 @@ class MainView : JFrame() {
             if (it.window.title == previous.parentFile.name) it.window.title = destination.parentFile.name
         }
         if (editors.isNotEmpty()) pageEditors.getOrPut(destination.absoluteFile.normalize()) { mutableListOf() }.addAll(editors)
-    }) { file -> openTemplateFile(file) }
+    }, onOpenTextTemplate = { name -> openTextTemplate(name) }) { file -> openTemplateFile(file) }
     private val newTemplateMenuItem = JMenuItem("Add template page")
     private val openSavedTemplateMenuItem = JMenuItem("Open template…")
     private var bucketTestWindow: JFrame? = null
+    private var textTemplateEditor: TextTemplateEditor? = null
 
     init {
         createUI()
@@ -55,6 +57,16 @@ class MainView : JFrame() {
             libraryView.refresh(pages.firstOrNull())
             if (openInEditor) pages.forEach(::openTemplateFile)
         }
+    }
+
+    private fun openTextTemplate(name: String?) {
+        textTemplateEditor?.takeIf { it.window.isDisplayable }?.let { editor ->
+            name?.let(editor::select)
+            editor.window.toFront()
+            editor.window.requestFocus()
+            return
+        }
+        textTemplateEditor = TextTemplateEditor.open(this, name) { libraryView.refresh() }
     }
 
     private fun openTemplateEditor(template: Template, file: File) {
@@ -124,6 +136,10 @@ class MainView : JFrame() {
             addActionListener { libraryView.changeSelectedPageNumber() }
         })
         fileMenu.add(openSavedTemplateMenuItem)
+        fileMenu.add(JMenuItem("Text templates…").apply {
+            toolTipText = "View and edit the text templates: their fields' numbers, names and global fields."
+            addActionListener { openTextTemplate(null) }
+        })
         fileMenu.addSeparator()
         fileMenu.add(JMenuItem("Browse GCP bucket…").apply {
             addActionListener { GcpBucketView.open(this@MainView) }

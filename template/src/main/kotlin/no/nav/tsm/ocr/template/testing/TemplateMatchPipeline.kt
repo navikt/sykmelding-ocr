@@ -75,13 +75,3 @@ internal fun png(image: BufferedImage): ByteArray = ByteArrayOutputStream().also
 internal fun previewBoxes(fields: List<Rectangle>, scale: Double): List<Rectangle> = fields.map {
     Rectangle((it.x * scale).roundToInt(), (it.y * scale).roundToInt(), (it.width * scale).roundToInt(), (it.height * scale).roundToInt())
 }
-
-/**
- * Default number of files matched at once: half the cores, one per 8 GB of memory, at most 4. SIFT already spreads
- * one page over several cores, and each 400-DPI page needs a few hundred MB of heap and native memory.
- */
-internal val DEFAULT_PARALLEL: Int = run {
-    val memoryGb = (java.lang.management.ManagementFactory.getOperatingSystemMXBean() as? com.sun.management.OperatingSystemMXBean)
-        ?.totalMemorySize?.div(1L shl 30) ?: 8
-    minOf(Runtime.getRuntime().availableProcessors() / 2, (memoryGb / 8).toInt(), 4).coerceAtLeast(1)
-}

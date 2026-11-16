@@ -41,24 +41,24 @@ class DpiSettingsTest {
     fun `features are found at no more than the render DPI, nor the templates' 400`() {
         assertEquals(TestSettings.featureRange(75), 10..75)
         assertEquals(TestSettings.featureRange(600), 10..400)
-        assertEquals(TestSettings(400, 100, 400, MatchingMethods(KeypointDetector.SIFT, MatchFilter.RATIO_TEST, HomographyMethod.MAGSAC)),
+        assertEquals(TestSettings(300, 100, 300, MatchingMethods(KeypointDetector.SIFT, MatchFilter.RATIO_TEST, HomographyMethod.MAGSAC)),
             TestSettings.PRODUCTION)
     }
 
     @Test
     fun `a result says which resolutions, matching methods and tolerance it was tested with`() {
         val production = PdfTestResult(PdfStatus.NO_MATCH, settings = TestSettings.PRODUCTION).summary()
-        assertTrue("Matched with lib's TemplateMatcher, as in production (SIFT / Ratio test / MAGSAC++ within 4 px, PDF rendered at 400 DPI, " +
+        assertTrue("Matched with lib's TemplateMatcher, as in production (SIFT / Ratio test / MAGSAC++ within 4 px, PDF rendered at 300 DPI, " +
             "features found at 100 DPI)." in production, production)
 
         val other = PdfTestResult(PdfStatus.MATCHED, reads = emptyList(), settings = TestSettings(200, 50, 50,
             MatchingMethods(KeypointDetector.ORB, MatchFilter.CROSS_CHECK, HomographyMethod.RANSAC))).summary()
         assertTrue("with ORB / Cross-check / RANSAC within 8 px, the PDF rendered at 200 DPI and features found at 50 DPI " +
-            "(production: SIFT / Ratio test / MAGSAC++ within 4 px, 400 and 100 DPI)." in other, other)
-        assertTrue("Fields read with lib's OCR, at 50 DPI (production reads them at 400 DPI); Tesseract is told 70 DPI" in other, other)
+            "(production: SIFT / Ratio test / MAGSAC++ within 4 px, 300 and 100 DPI)." in other, other)
+        assertTrue("Fields read with lib's OCR, at 50 DPI (production reads them at 300 DPI); Tesseract is told 70 DPI" in other, other)
 
         val methodsOnly = PdfTestResult(PdfStatus.NO_MATCH, settings = TestSettings.PRODUCTION.copy(methods = MatchingMethods(KeypointDetector.ORB))).summary()
-        assertTrue("with ORB / Ratio test / MAGSAC++ within 4 px, the PDF rendered at 400 DPI" in methodsOnly, "another detector is not production: $methodsOnly")
+        assertTrue("with ORB / Ratio test / MAGSAC++ within 4 px, the PDF rendered at 300 DPI" in methodsOnly, "another detector is not production: $methodsOnly")
 
         val toleranceOnly = PdfTestResult(PdfStatus.NO_MATCH, settings = TestSettings.PRODUCTION.copy(tolerance = 2.5)).summary()
         assertTrue("with SIFT / Ratio test / MAGSAC++ within 2.5 px," in toleranceOnly, "another tolerance is not production: $toleranceOnly")
@@ -72,7 +72,7 @@ class DpiSettingsTest {
     @Test
     fun `a matcher is reused only for the same resolutions, methods and tolerance`() {
         TemplateMatcher(templates = emptyList(), methods = MatchingMethods(KeypointDetector.ORB, MatchFilter.CROSS_CHECK)).use { matcher ->
-            val settings = TestSettings(400, 100, 300, MatchingMethods(KeypointDetector.ORB, MatchFilter.CROSS_CHECK))
+            val settings = TestSettings(300, 100, 400, MatchingMethods(KeypointDetector.ORB, MatchFilter.CROSS_CHECK))
             assertTrue(settings.matchesAs(matcher), "the OCR resolution does not matter to the matcher")
             assertTrue(settings.copy(tolerance = 4.0).matchesAs(matcher), "Auto is 4 px at 100 DPI")
             assertFalse(settings.copy(tolerance = 3.0).matchesAs(matcher))

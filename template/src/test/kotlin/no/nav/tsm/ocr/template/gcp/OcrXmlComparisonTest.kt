@@ -1,6 +1,10 @@
 package no.nav.tsm.ocr.template.gcp
 
+import no.nav.tsm.sykmelding.model.ArbeidsrelatertArsakType
 import no.nav.tsm.sykmelding.model.CheckboxState
+import no.nav.tsm.sykmelding.model.MedisinskArsakType
+import no.nav.tsm.sykmelding.model.OcrParserAktivitet
+import no.nav.tsm.sykmelding.model.OcrValue
 import no.nav.tsm.sykmelding.ocr.FieldText
 import no.nav.tsm.sykmelding.ocr.PageRead
 import no.nav.tsm.sykmelding.ocr.SykmeldingOcrMapping
@@ -280,5 +284,45 @@ class OcrXmlComparisonTest {
         assertEquals(ComparisonStatus.NORMALIZED_MATCH, rows.getValue("arbeidsgiver.harArbeidsgiver").status)
         assertEquals(ComparisonStatus.MATCH, rows.getValue("aktivitet.innspillTilArbeidsgiver").status)
         assertEquals(ComparisonStatus.MATCH, rows.getValue("tilbakedatering.tilbakeDato").status)
+    }
+
+    @Test
+    fun `the reasons of aktivitet ikke mulig are values, and their descriptions are compared with the XML`() {
+        val mapped = emptyMapped.copy(aktivitet = listOf(OcrParserAktivitet.IkkeMulig(
+            fom = null,
+            tom = null,
+            medisinskArsak = CheckboxState.CHECKED,
+            arbeidsrelatertArsak = CheckboxState.CHECKED,
+            medisinskArsakGrunn = OcrValue.Read(MedisinskArsakType.TILSTAND_HINDRER_AKTIVITET, "Helsetilstanden hindrer pasienten i å være i aktivitet"),
+            medisinskArsakBegrunn = "Example reason",
+            arbeidsrelatertArsakGrunn = OcrValue.Read(ArbeidsrelatertArsakType.MANGLENDE_TILRETTELEGGING, "Manglende tilrettelegging på arbeidsplassen"),
+            arbeidsrelatertArsakBegrunn = "Example workplace",
+        )))
+        val values = sykmeldingValues(mapped).associate { it.path to it.value }
+        assertEquals("TILSTAND_HINDRER_AKTIVITET", values["aktivitet.aktivitetIkkeMulig.medisinskeArsaker.grunn"])
+        assertEquals("Example reason", values["aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerBesk"])
+        assertEquals("MANGLENDE_TILRETTELEGGING", values["aktivitet.aktivitetIkkeMulig.arbeidsplassen.grunn"])
+        assertEquals("Example workplace", values["aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenBesk"])
+
+        val rows = compareMappedOcrWithXml(mapped, xml(
+            "aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerBesk" to "Example reason",
+            "aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenBesk" to "Another workplace",
+        )).fields.associateBy { it.path }
+        assertEquals(ComparisonStatus.MATCH, rows.getValue("aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerBesk").status)
+        assertEquals(ComparisonStatus.DIFFERENT, rows.getValue("aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenBesk").status)
+        assertEquals(ComparisonStatus.NOT_COMPARABLE, rows.getValue("OCR.aktivitet.aktivitetIkkeMulig.medisinskeArsaker.grunn").status)
+    }
+
+    @Test
+    fun `the descriptions of the reasons are missing in OCR only for a text template, as an image template has no field for them`() {
+        val mapped = emptyMapped.copy(aktivitet = listOf(OcrParserAktivitet.IkkeMulig(null, null, CheckboxState.CHECKED, CheckboxState.CHECKED)))
+        val paths = listOf(
+            "aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerBesk",
+            "aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenBesk",
+        )
+        fun statuses(textTemplate: Boolean) = compareMappedOcrWithXml(mapped, xml(*paths.map { it to "Example" }.toTypedArray()), textTemplate)
+            .fields.associateBy { it.path }.let { rows -> paths.map { rows.getValue(it).status } }
+        assertEquals(List(2) { ComparisonStatus.MISSING_OCR }, statuses(textTemplate = true))
+        assertEquals(List(2) { ComparisonStatus.NOT_COMPARABLE }, statuses(textTemplate = false))
     }
 }

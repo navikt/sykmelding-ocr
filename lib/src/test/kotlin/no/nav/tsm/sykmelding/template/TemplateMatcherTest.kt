@@ -77,8 +77,8 @@ class TemplateMatcherTest {
         // At 1 px (one pixel at 400 DPI), scans of the right form had only 9–33 % of their matches agree, so none matched.
         assertEquals(3.0, TemplateMatcher.reprojectionTolerance(400), "as the matcher was before feature DPI could be chosen")
         assertEquals(3.0, TemplateMatcher.reprojectionTolerance(200))
-        TemplateMatcher(templates = emptyList(), featureDpi = 400).use { assertEquals(3.0, it.tolerance, "auto") }
-        TemplateMatcher(templates = emptyList(), featureDpi = 400, tolerance = 1.5).use { assertEquals(1.5, it.tolerance, "as given") }
+        TemplateMatcher(templates = emptyList(), renderDpi = 400, featureDpi = 400).use { assertEquals(3.0, it.tolerance, "auto") }
+        TemplateMatcher(templates = emptyList(), renderDpi = 400, featureDpi = 400, tolerance = 1.5).use { assertEquals(1.5, it.tolerance, "as given") }
         assertFailsWith<IllegalArgumentException> { TemplateMatcher(templates = emptyList(), tolerance = 0.0) }
     }
 

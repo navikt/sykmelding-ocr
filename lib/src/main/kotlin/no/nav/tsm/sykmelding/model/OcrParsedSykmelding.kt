@@ -1,7 +1,10 @@
 package no.nav.tsm.sykmelding.model
 
 import no.nav.tsm.diagnoser.Diagnose
+import org.slf4j.LoggerFactory
 import java.time.LocalDate
+
+private val log = LoggerFactory.getLogger(MedisinskArsakType::class.java)
 
 data class OcrParserSykmelding(
     val templateVersion: String,
@@ -94,6 +97,42 @@ data class OcrParserDiagnose(val diagnose: OcrValue<Diagnose>?, val system: Stri
 
 data class OcrParserAnnenFraversArsak(val arsak: List<LovfestetFravaersgrunn>, val tekst: String?, val beskrivelse: String?)
 
+enum class MedisinskArsakType {
+    TILSTAND_HINDRER_AKTIVITET,
+    AKTIVITET_FORVERRER_TILSTAND,
+    AKTIVITET_FORHINDRER_BEDRING,
+    ANNET;
+
+    companion object {
+        fun fraTekst(tekst: String): List<MedisinskArsakType> {
+            val text = tekst.lowercase()
+            return listOfNotNull(
+                TILSTAND_HINDRER_AKTIVITET.takeIf { "helsetilstanden hindrer" in text },
+                AKTIVITET_FORVERRER_TILSTAND.takeIf { "aktivitet vil forverre" in text },
+                AKTIVITET_FORHINDRER_BEDRING.takeIf { "aktivitet vil hindre" in text },
+                ANNET.takeIf { "annet" in text.split(NOT_LETTERS) },
+            ).also { if (it.isEmpty()) log.warn("could not map medisinsk arsak") }
+        }
+    }
+}
+
+private val NOT_LETTERS = Regex("""[^\p{L}]+""")
+
+enum class ArbeidsrelatertArsakType {
+    MANGLENDE_TILRETTELEGGING,
+    ANNET;
+
+    companion object {
+        fun fraTekst(tekst: String): List<ArbeidsrelatertArsakType> {
+            val text = tekst.lowercase()
+            return listOfNotNull(
+                MANGLENDE_TILRETTELEGGING.takeIf { "manglende" in text },
+                ANNET.takeIf { "annet" in text.split(NOT_LETTERS) },
+            ).also { if (it.isEmpty()) log.warn("could not map arbeidsrelatert arsak") }
+        }
+    }
+}
+
 sealed interface OcrParserAktivitet {
     val fom: OcrValue<LocalDate>?
     val tom: OcrValue<LocalDate>?
@@ -116,6 +155,10 @@ sealed interface OcrParserAktivitet {
         override val tom: OcrValue<LocalDate>?,
         val medisinskArsak: CheckboxState,
         val arbeidsrelatertArsak: CheckboxState,
+        val medisinskArsakGrunn: OcrValue<MedisinskArsakType>? = null,
+        val medisinskArsakBegrunn: String? = null,
+        val arbeidsrelatertArsakGrunn: OcrValue<ArbeidsrelatertArsakType>? = null,
+        val arbeidsrelatertArsakBegrunn: String? = null,
     ) : OcrParserAktivitet
 
     data class Behandlingsdager(
