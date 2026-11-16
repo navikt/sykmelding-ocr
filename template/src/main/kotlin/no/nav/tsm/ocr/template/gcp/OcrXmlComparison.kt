@@ -52,9 +52,9 @@ internal class OcrXmlComparison(val fields: List<OcrXmlFieldComparison>, val pro
  * Pairs every value of the papirsykemelding classes ([PapirsykmeldingXml.document]) with the mapped production value
  * it corresponds to. Where production reads a field differently from its text, the text is compared and shown.
  */
-internal fun compareMappedOcrWithXml(mapped: OcrParserSykmelding, xml: PapirsykmeldingXml): OcrXmlComparison {
+internal fun compareMappedOcrWithXml(mapped: OcrParserSykmelding, xml: PapirsykmeldingXml, textTemplate: Boolean = true): OcrXmlComparison {
     val xmlFields = xml.fields.associateBy { comparisonPath(it.path) }
-    val pairs = fieldPairs(mapped, xml.document.sykemeldinger)
+    val pairs = fieldPairs(mapped, xml.document.sykemeldinger, textTemplate)
     val paired = pairs.mapTo(HashSet()) { it.path }
     // Elements outside the schema have no getter, so no pair; they are still shown.
     val unpaired = xmlFields.keys.filter { it !in paired }
@@ -69,7 +69,7 @@ internal fun compareMappedOcrWithXml(mapped: OcrParserSykmelding, xml: Papirsykm
             pair.kind == ValueKind.UNSUPPORTED -> ComparisonStatus.NOT_COMPARABLE
             field?.problem != null || (field?.note != null &&
                 normalize(field.value.orEmpty(), pair.kind) != normalize(field.text, pair.kind)) -> ComparisonStatus.XML_PROBLEM
-            uncertainBox || pair.unreadable -> ComparisonStatus.UNCERTAIN
+            uncertainBox || pair.problem != null -> ComparisonStatus.UNCERTAIN
             ocr == null -> ComparisonStatus.MISSING_OCR
             original == null -> ComparisonStatus.OCR_ONLY
             ocr == original -> ComparisonStatus.MATCH
@@ -79,6 +79,17 @@ internal fun compareMappedOcrWithXml(mapped: OcrParserSykmelding, xml: Papirsykm
         OcrXmlFieldComparison(pair.path, ocr, original, status, field?.note ?: field?.problem ?: pair.note)
     }
     return OcrXmlComparison(rows, xml.problems)
+}
+
+internal data class SykmeldingValue(val path: String, val value: String, val note: String? = null)
+
+internal fun sykmeldingValues(mapped: OcrParserSykmelding): List<SykmeldingValue> = fieldPairs(mapped, null).mapNotNull { pair ->
+    pair.ocr?.takeIf { it.isNotBlank() }
+        ?.let { SykmeldingValue(pair.path.removePrefix("OCR."), it, pair.note.takeIf { pair.kind != ValueKind.UNSUPPORTED }) }
+}
+
+internal fun sykmeldingLines(mapped: OcrParserSykmelding): String = sykmeldingValues(mapped).joinToString("\n") { value ->
+    "${value.path.padEnd(66)} ${value.value.replace("\n", " / ")}" + value.note?.let { "  ($it)" }.orEmpty()
 }
 
 // The XML parser numbers only repeated elements; a single diagnosis still means the first diagnosis.
@@ -94,8 +105,8 @@ private fun comparisonPath(path: String): String = path
 private enum class ValueKind { TEXT, DATE, NUMBER, BOOLEAN, CATEGORY, CODE, HPR, PHONE, UNSUPPORTED }
 
 /**
- * An XML value at its [path] and the OCR value it is compared with; either is null when absent. [unreadable]: the OCR
- * value is [OcrValue.Unreadable], so [ocr] is its text as read.
+ * An XML value at its [path] and the OCR value it is compared with; either is null when absent. [problem]: the OCR
+ * value when it is [OcrValue.Unreadable], also one the XML has no field for; [ocr] is then its text as read.
  */
 private data class FieldPair(
     val path: String,
@@ -103,24 +114,26 @@ private data class FieldPair(
     val xml: String?,
     val kind: ValueKind,
     val note: String? = null,
-    val unreadable: Boolean = false,
+    val problem: OcrValue.Unreadable? = null,
 )
 
-private const val NO_OCR_FIELD = "OcrParserSykmelding has no field for this."
 private const val NOT_ON_TEMPLATES = "Not on the current templates."
 private const val NO_XML_FIELD = "The XML has no field for this."
 
-private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?): List<FieldPair> = buildList {
+private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?, textTemplate: Boolean = true): List<FieldPair> = buildList {
     fun pair(path: String, ocr: Any?, xml: Any?, kind: ValueKind = ValueKind.TEXT) {
         add(FieldPair(path, ocr?.toString(), xml?.toString(), kind))
     }
+    fun textTemplatePair(path: String, ocr: Any?, xml: Any?) =
+        if (textTemplate) pair(path, ocr, xml) else add(FieldPair(path, null, xml?.toString(), ValueKind.UNSUPPORTED, NOT_ON_TEMPLATES))
     /** A typed OCR value: shown as [shown] gives it, with its text in the note when that differs, or as read when unreadable. */
     fun <T> read(path: String, ocr: OcrValue<T>?, xml: Any?, kind: ValueKind = ValueKind.TEXT, shown: (T) -> String = { it.toString() }) {
         add(when (ocr) {
             is OcrValue.Read -> shown(ocr.value).let { value ->
                 FieldPair(path, value, xml?.toString(), kind, note = ocr.text.takeIf { it != value }?.let { "OCR text: $it" })
             }
-            is OcrValue.Unreadable -> FieldPair(path, ocr.text, xml?.toString(), kind, "Unreadable: ${ocr.reason}", unreadable = true)
+            is OcrValue.Unreadable ->
+                FieldPair(path, ocr.text, xml?.toString(), kind, "Unreadable: ${ocr.reason}", ocr)
             null -> FieldPair(path, null, xml?.toString(), kind)
         })
     }
@@ -130,15 +143,14 @@ private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?): Li
         CheckboxState.UNCERTAIN -> CheckboxState.UNCERTAIN.name
         null -> null
     }, xml, ValueKind.BOOLEAN)
-    fun xmlOnly(path: String, xml: Any?, note: String = NO_OCR_FIELD) =
+    fun xmlOnly(path: String, xml: Any?, note: String) =
         add(FieldPair(path, null, xml?.toString(), ValueKind.UNSUPPORTED, note))
     fun ocrOnly(path: String, ocr: Any?) = add(FieldPair("OCR.$path", ocr?.toString(), null, ValueKind.UNSUPPORTED, NO_XML_FIELD))
-    /** An OCR-only value: an unreadable one shows its text as read and why. */
-    fun ocrText(value: OcrValue<*>?): String? = when (value) {
+    fun ocrOnlyRead(path: String, value: OcrValue<*>?) = add(FieldPair("OCR.$path", when (value) {
         is OcrValue.Read -> value.value.toString()
         is OcrValue.Unreadable -> "${value.text} (unreadable: ${value.reason})"
         null -> null
-    }
+    }, null, ValueKind.UNSUPPORTED, NO_XML_FIELD, problem = value as? OcrValue.Unreadable))
     fun crossChecked(path: String, value: OcrCrossChecked<String>) {
         ocrOnly("$path.readings", value.readings.joinToString("\n") { reading ->
             "${reading.value.text} (${reading.field} p${reading.page})" +
@@ -162,11 +174,11 @@ private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?): Li
     val pasient = mapped.pasient
     read("pasient.fnr", pasient.fnr.value, xml?.pasient?.fnr)
     crossChecked("pasient.fnr", pasient.fnr)
-    ocrOnly("pasient.etternavn", ocrText(pasient.etternavn.value))
+    ocrOnlyRead("pasient.etternavn", pasient.etternavn.value)
     crossChecked("pasient.etternavn", pasient.etternavn)
-    ocrOnly("pasient.fornavn", ocrText(pasient.fornavn.value))
+    ocrOnlyRead("pasient.fornavn", pasient.fornavn.value)
     crossChecked("pasient.fornavn", pasient.fornavn)
-    ocrOnly("pasient.telefon", ocrText(pasient.telefon))
+    ocrOnlyRead("pasient.telefon", pasient.telefon)
     ocrOnly("pasient.navnFastlege", pasient.navnFastlege)
     ocrOnly("pasient.navKontor", pasient.navKontor)
 
@@ -222,11 +234,14 @@ private fun fieldPairs(mapped: OcrParserSykmelding, xml: SykemeldingerType?): Li
     period("aktivitetIkkeMulig", ikkeMulig, xmlIkkeMulig?.periodeFOMDato, xmlIkkeMulig?.periodeTOMDato)
     checkbox("aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerHindrer", ikkeMulig?.medisinskArsak,
         xmlIkkeMulig?.medisinskeArsaker?.isMedArsakerHindrer)
-    xmlOnly("aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerBesk", xmlIkkeMulig?.medisinskeArsaker?.medArsakerBesk,
-        NOT_ON_TEMPLATES)
+    ocrOnlyRead("aktivitet.aktivitetIkkeMulig.medisinskeArsaker.grunn", ikkeMulig?.medisinskArsakGrunn)
+    textTemplatePair("aktivitet.aktivitetIkkeMulig.medisinskeArsaker.medArsakerBesk", ikkeMulig?.medisinskArsakBegrunn,
+        xmlIkkeMulig?.medisinskeArsaker?.medArsakerBesk)
     checkbox("aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenHindrer", ikkeMulig?.arbeidsrelatertArsak,
         xmlIkkeMulig?.arbeidsplassen?.isArbeidsplassenHindrer)
-    xmlOnly("aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenBesk", xmlIkkeMulig?.arbeidsplassen?.arbeidsplassenBesk)
+    ocrOnlyRead("aktivitet.aktivitetIkkeMulig.arbeidsplassen.grunn", ikkeMulig?.arbeidsrelatertArsakGrunn)
+    textTemplatePair("aktivitet.aktivitetIkkeMulig.arbeidsplassen.arbeidsplassenBesk", ikkeMulig?.arbeidsrelatertArsakBegrunn,
+        xmlIkkeMulig?.arbeidsplassen?.arbeidsplassenBesk)
 
     val xmlBehandling = aktivitet?.behandlingsdager
     period("behandlingsdager", behandling, xmlBehandling?.periodeFOMDato, xmlBehandling?.periodeTOMDato)

@@ -15,6 +15,7 @@
   }, {
     "number" : "1.1",
     "name" : "Navn",
+    "field" : null,
     "layout" : "INLINE"
   }, {
     "number" : "1.1.1",
@@ -58,7 +59,7 @@
       "navn" : "pasient.telefon",
       "type" : "Number",
       "number" : "1.3",
-      "description" : "Telefon (utgår v3)",
+      "description" : "Telefon",
       "receivedSykmeldingName" : "tlfPasient"
     },
     "layout" : "INLINE"
@@ -70,8 +71,19 @@
       "navn" : "pasient.fastlege",
       "type" : "Text",
       "number" : "1.4",
-      "description" : "Navn fastlege (utgår v3)",
+      "description" : "Navn fastlege",
       "receivedSykmeldingName" : "navnFastlege"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "1.5",
+    "name" : "NAV-kontor",
+    "field" : {
+      "id" : "8f334bf6-fbe5-4590-b160-d30bbb6e65a1",
+      "navn" : "pasient.navkontor",
+      "type" : "Text",
+      "number" : "1.5",
+      "description" : "NAV-kontor"
     },
     "layout" : "INLINE"
   }, {
@@ -125,7 +137,8 @@
   }, {
     "number" : "3.1",
     "name" : "Hoveddiagnose",
-    "layout" : "BELOW"
+    "field" : null,
+    "layout" : "NONE"
   }, {
     "number" : "3.1.1",
     "name" : "Kodesystem",
@@ -163,9 +176,140 @@
     },
     "layout" : "BELOW"
   }, {
+    "number" : "3.2",
+    "name" : "Bidiagnoser",
+    "field" : null,
+    "layout" : "NONE"
+  }, {
+    "number" : "3.2.1",
+    "name" : "Kodesystem",
+    "field" : {
+      "id" : "32f7fa83-98cb-467a-808a-ef1586a63258",
+      "navn" : "bidiagnose.system",
+      "type" : "Text",
+      "number" : "3.2.1",
+      "description" : "Kodesystem",
+      "receivedSykmeldingName" : "system"
+    },
+    "layout" : "BELOW"
+  }, {
+    "number" : "3.2.2",
+    "name" : "Kode",
+    "field" : {
+      "id" : "7232f088-09a7-4052-89fc-93c5aad4ebb7",
+      "navn" : "bidiagnose.kode",
+      "type" : "Code",
+      "number" : "3.2.2",
+      "description" : "Kode",
+      "receivedSykmeldingName" : "kode"
+    },
+    "layout" : "BELOW"
+  }, {
+    "number" : "3.2.3",
+    "name" : "Diagnose",
+    "field" : {
+      "id" : "b766259b-91bf-4506-8eec-487e30558eb3",
+      "navn" : "bidiagnose.text",
+      "type" : "Text",
+      "number" : "3.2.3",
+      "description" : "Diagnose",
+      "receivedSykmeldingName" : "tekst"
+    },
+    "layout" : "BELOW"
+  }, {
+    "number" : "3.4",
+    "name" : "Sykdommen er svangerskapsrelatert",
+    "field" : {
+      "id" : "43b64335-9293-47fd-94e2-e57d1665a65a",
+      "navn" : "diagnose.svangerskapsrelatert",
+      "type" : "Checkbox",
+      "number" : "3.4",
+      "description" : "Svangerskapsrelatert",
+      "receivedSykmeldingName" : "svangerskap"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "3.5",
+    "name" : "Sykmeldingen kan skyldes en yrkesskade/yrkessykdom",
+    "field" : {
+      "id" : "ceb6d721-99d5-434c-b475-2cb9a49c61c1",
+      "navn" : "diagnose.yrkesskade",
+      "type" : "Checkbox",
+      "number" : "3.5",
+      "description" : "Yrkesskade",
+      "receivedSykmeldingName" : "yrkesskade"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "3.6",
+    "name" : "Eventuell skadedato",
+    "field" : {
+      "id" : "87ee6305-0a7e-408f-877e-4642a1317734",
+      "navn" : "diagnose.yrkesskade.skadedato",
+      "type" : "Text",
+      "number" : "3.6",
+      "description" : "Skadedato",
+      "receivedSykmeldingName" : "yrkesskadeDato"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "3.7",
+    "name" : "Det er påtrengende nødvendig å skjerme pasienten for medisinske opplysninger",
+    "field" : {
+      "id" : "88a0ba34-6755-4f3f-926c-619ce052cc8c",
+      "navn" : "diagnose.skjermes",
+      "type" : "Checkbox",
+      "number" : "3.7",
+      "description" : "Må skjerme opplysninger",
+      "receivedSykmeldingName" : "skjermesForPasient"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "4.1",
+    "name" : "Pasienten kan benytte avventende sykmelding",
+    "field" : null,
+    "layout" : "NONE"
+  }, {
+    "number" : "4.1.1",
+    "name" : "f.o.m.",
+    "field" : {
+      "id" : "41f1fd0a-73e6-4173-984b-da9ec0dede57",
+      "navn" : "aktivitet.avventende.fom",
+      "type" : "Date",
+      "number" : "4.1.1",
+      "description" : "Fom",
+      "receivedSykmeldingName" : "fom"
+    },
+    "layout" : "BELOW"
+  }, {
+    "number" : "4.1.2",
+    "name" : "t.o.m.",
+    "field" : {
+      "id" : "255a3c3a-200f-43dc-bb4a-ba8d54ed2193",
+      "navn" : "aktivitet.avventende.tom",
+      "type" : "Date",
+      "number" : "4.1.2",
+      "description" : "Tom",
+      "receivedSykmeldingName" : "tom"
+    },
+    "layout" : "BELOW"
+  }, {
+    "number" : "4.1.3",
+    "name" : "Innspill til arbeidsgiver om tilrettelegging",
+    "field" : {
+      "id" : "f304ada9-c113-4010-b6e5-42c213003606",
+      "navn" : "aktivitet.innspillArbeidsgiver",
+      "type" : "Text",
+      "number" : "4.1.3",
+      "description" : "Tilrettelegging",
+      "receivedSykmeldingName" : "avventendeInnspillTilArbeidsgiver"
+    },
+    "layout" : "INLINE"
+  }, {
     "number" : "4.2",
     "name" : "Pasienten kan være delvis i arbeid (gradert sykmelding)",
-    "layout" : "BELOW"
+    "field" : null,
+    "layout" : "NONE"
   }, {
     "number" : "4.2.1",
     "name" : "f.o.m.",
@@ -217,7 +361,8 @@
   }, {
     "number" : "4.3",
     "name" : "Pasienten kan ikke være i arbeid (100 % sykmelding)",
-    "layout" : "BELOW"
+    "field" : null,
+    "layout" : "NONE"
   }, {
     "number" : "4.3.1",
     "name" : "f.o.m",
@@ -257,11 +402,105 @@
   }, {
     "number" : "4.3.3.1",
     "name" : "Angi hva som er årsaken",
+    "field" : null,
     "layout" : "INLINE"
   }, {
     "number" : "4.3.3.2",
     "name" : "Beskriv nærmere",
+    "field" : null,
     "layout" : "INLINE"
+  }, {
+    "number" : "4.3.4",
+    "name" : "Og forhold på arbeidsplassen vanskeliggjør arbeidsrelatert aktivitet",
+    "field" : {
+      "id" : "f3cd3cc5-1d61-4035-847c-42926d8a19be",
+      "navn" : "aktivitet.forholdArbeidsplassen",
+      "type" : "Checkbox",
+      "number" : "4.3.4",
+      "description" : "Forhold arbeidsplass",
+      "receivedSykmeldingName" : "arbeidsrelatertArsak"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "4.3.4.1",
+    "name" : "Angi hva som er årsaken",
+    "field" : null,
+    "layout" : "INLINE"
+  }, {
+    "number" : "4.3.4.2",
+    "name" : "Beskriv nærmere",
+    "field" : null,
+    "layout" : "INLINE"
+  }, {
+    "number" : "4.4",
+    "name" : "Pasienten kan ikke være i arbeid på behandlingsdager",
+    "field" : null,
+    "layout" : "NONE"
+  }, {
+    "number" : "4.4.1",
+    "name" : "f.o.m.",
+    "field" : {
+      "id" : "53438b74-21a6-49e5-8504-a22bb3b3c998",
+      "navn" : "aktivitet.behandlingsdager.fom",
+      "type" : "Date",
+      "number" : "4.4.1",
+      "description" : "Fom",
+      "receivedSykmeldingName" : "fom"
+    },
+    "layout" : "BELOW"
+  }, {
+    "number" : "4.4.2",
+    "name" : "t.o.m.",
+    "field" : {
+      "id" : "d1decd44-831e-4d31-9c71-802bdb494331",
+      "navn" : "aktivitet.behandlingsdager.tom",
+      "type" : "Date",
+      "number" : "4.4.2",
+      "description" : "Tom",
+      "receivedSykmeldingName" : "tom"
+    },
+    "layout" : "BELOW"
+  }, {
+    "number" : "4.4.3",
+    "name" : "Oppgi antall dager i perioden",
+    "field" : {
+      "id" : "d03879a8-7ca8-40d1-9c81-c6f1e9a1b0c6",
+      "navn" : "aktivitet.behandlingsdager.dager",
+      "type" : "Number",
+      "number" : "4.4.3",
+      "description" : "Antall dager",
+      "receivedSykmeldingName" : "behandlingsdager"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "4.5",
+    "name" : "Pasienten kan være i fullt arbeid ved bruk av reisetilskudd",
+    "field" : null,
+    "layout" : "NONE"
+  }, {
+    "number" : "4.5.1",
+    "name" : "f.o.m.",
+    "field" : {
+      "id" : "91fa1bdb-4962-4440-82c4-09f75ffc743e",
+      "navn" : "aktivitet.reisetilskudd.fom",
+      "type" : "Date",
+      "number" : "4.5.1",
+      "description" : "Fom",
+      "receivedSykmeldingName" : "fom"
+    },
+    "layout" : "BELOW"
+  }, {
+    "number" : "4.5.2",
+    "name" : "t.o.m.",
+    "field" : {
+      "id" : "82a0acb7-946d-4c3a-b3ea-2f6fd23b66ce",
+      "navn" : "aktivitet.reisetilskudd.tom",
+      "type" : "Date",
+      "number" : "4.5.2",
+      "description" : "Tom",
+      "receivedSykmeldingName" : "tom"
+    },
+    "layout" : "BELOW"
   }, {
     "number" : "5.1",
     "name" : "Pasienten er 100% arbeidsfør etter denne perioden",
@@ -275,6 +514,54 @@
     },
     "layout" : "INLINE"
   }, {
+    "number" : "5.1.1",
+    "name" : "Beskriv eventuelle hensyn som må tas på arbeidsplassen",
+    "field" : {
+      "id" : "ce8d5804-65f5-41a3-86c5-f1d95e8b80e6",
+      "navn" : "prognose.arbeidsforEtterPerioden.beskrivelse",
+      "type" : "Text",
+      "number" : "5.1.1",
+      "description" : "Hensyn arbeidsplassen",
+      "receivedSykmeldingName" : "hensynArbeidsplassen"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "7.1",
+    "name" : "Tilrettelegging/hensyn som bør tas på arbeidsplassen",
+    "field" : {
+      "id" : "908a5621-4018-4ac4-b4c6-ac67a1a0193d",
+      "navn" : "arbeidsevne.tilretteleggingArbeidsplassen",
+      "type" : "Text",
+      "number" : "7.1",
+      "description" : "Tiltak arbeidsplassen",
+      "receivedSykmeldingName" : "tiltakArbeidsplassen"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "7.2",
+    "name" : "Tiltak i regi av NAV",
+    "field" : {
+      "id" : "2ff5878a-a4b1-482b-9a40-31841765c952",
+      "navn" : "arbeidsevne.tiltakNav",
+      "type" : "Text",
+      "number" : "7.2",
+      "description" : "Tiltak NAV",
+      "receivedSykmeldingName" : "tiltakNAV"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "7.3",
+    "name" : "Eventuelle andre innspill til NAV",
+    "field" : {
+      "id" : "301e0a8f-5ae6-49e7-a244-d2b257472c56",
+      "navn" : "arbeidsevne.innspillNav",
+      "type" : "Text",
+      "number" : "7.3",
+      "description" : "Andre tiltak",
+      "receivedSykmeldingName" : "andreTiltak"
+    },
+    "layout" : "INLINE"
+  }, {
     "number" : "8.1",
     "name" : "melding til NAV. Merk at felt 8.2 utgår",
     "field" : {
@@ -282,13 +569,37 @@
       "navn" : "melding.nav.bistand",
       "type" : "Checkbox",
       "number" : "8.1",
-      "description" : "Bistand fra NAV? (utgår v3)",
+      "description" : "Bistand fra NAV?",
       "receivedSykmeldingName" : "bistandUmiddelbart"
     },
     "layout" : "INLINE"
   }, {
+    "number" : "8.2",
+    "name" : "Begrunn nærmere",
+    "field" : {
+      "id" : "e09fabcc-688a-4cfe-920a-787c7f2f9839",
+      "navn" : "melding.nav.beskrivelse",
+      "type" : "Text",
+      "number" : "8.2",
+      "description" : "Bistand NAV, beskrivelse",
+      "receivedSykmeldingName" : "beskrivBistand"
+    },
+    "layout" : "INLINE"
+  }, {
+    "number" : "9.1",
+    "name" : "Andre innspill til arbeidsgiver",
+    "field" : {
+      "id" : "4b31907c-7e80-4afd-ac7c-7d09e9b6b6db",
+      "navn" : "melding.arbeidsgiver.andreInnspill",
+      "type" : "Text",
+      "number" : "9.1",
+      "description" : "Innspill arbeidsgiver",
+      "receivedSykmeldingName" : "meldingTilArbeidsgiver"
+    },
+    "layout" : "INLINE"
+  }, {
     "number" : "11.1",
-    "name" : "Hvis denne sykmeldingen er tilbakedatert, oppgi dato for dokumenterbar kontakt med pasienten (Kan leses av arbeidsgiver)",
+    "name" : "Hvis denne sykmeldingen er tilbakedatert, oppgi dato for",
     "field" : {
       "id" : "8390cc66-f13a-41e4-b2df-b8926d5aed96",
       "navn" : "tilbakedatering.kontaktdato",
@@ -300,7 +611,7 @@
     "layout" : "INLINE"
   }, {
     "number" : "11.2",
-    "name" : "Pasienten har ikke kunnet ivareta egne interesser Begrunn",
+    "name" : "Begrunn årsaken til tilbakedateringen",
     "field" : {
       "id" : "2af69c10-df7f-41ea-b8a7-d29e36830527",
       "navn" : "tilbakedatering.beskrivelse",
@@ -336,6 +647,7 @@
   }, {
     "number" : "12.3",
     "name" : "Adresse",
+    "field" : null,
     "layout" : "INLINE"
   }, {
     "number" : "12.4",

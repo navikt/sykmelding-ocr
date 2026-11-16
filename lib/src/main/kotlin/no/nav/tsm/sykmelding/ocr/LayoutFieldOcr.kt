@@ -10,6 +10,7 @@ import org.bytedeco.tesseract.global.tesseract.TessPageIteratorDelete
 import no.nav.tsm.sykmelding.template.FieldType
 import no.nav.tsm.sykmelding.template.Felter
 import no.nav.tsm.sykmelding.template.PdfTemplateImages
+import no.nav.tsm.sykmelding.template.TextTemplate
 import no.nav.tsm.sykmelding.template.rectangle
 import org.opencv.core.Mat
 import org.opencv.core.Size
@@ -182,6 +183,26 @@ private fun Ocr.readSegment(page: OcrPage, segment: FieldSegment): List<TextRegi
 }
 
 private fun TextRegion.translate(dx: Int, dy: Int) = copy(x = x + dx, y = y + dy, baseline = baseline + dy)
+
+private val digitOcr by lazy { Ocr(Ocr.OcrTrainedData.NOR_BEST) }
+
+private val letterOcr by lazy { Ocr() }
+
+fun readPart(image: BufferedImage, dpi: Int?, part: TextPart, allowedCharacters: String): String {
+    val line = part.line
+    val box = Rectangle(line.x, line.y, line.width, line.height).intersection(Rectangle(0, 0, image.width, image.height))
+    if (box.isEmpty) return ""
+    val ocr = if (allowedCharacters.isNotEmpty() && allowedCharacters.none(Char::isLetter)) digitOcr else letterOcr
+    return ocr.detectText(crop(image, box, PADDING), PsmMode.PSM_SINGLE_LINE, dpi?.coerceIn(TESSERACT_RESOLUTIONS), allowedCharacters).joinToString(" ") { it.text }
+}
+
+class TextPage(upright: BufferedImage, val dpi: Int) {
+    val image: BufferedImage = blackAndWhite(upright)
+    val parts: List<TextPart> = Ocr().detectParts(image, dpi)
+
+    fun read(template: TextTemplate): CustomTextTemplateParser.Page =
+        CustomTextTemplateParser.read(parts, template) { part, allowedCharacters -> readPart(image, dpi, part, allowedCharacters) }
+}
 
 private fun crop(page: BufferedImage, box: Rectangle, padding: Int): BufferedImage {
     val image = BufferedImage(box.width + 2 * padding, box.height + 2 * padding, BufferedImage.TYPE_BYTE_GRAY)

@@ -19,7 +19,6 @@ import no.nav.tsm.sykmelding.model.OcrParserTilbakedatering
 import no.nav.tsm.sykmelding.model.OcrParserTiltak
 import no.nav.tsm.sykmelding.model.OcrReading
 import no.nav.tsm.sykmelding.model.OcrValue
-import no.nav.tsm.sykmelding.template.PdfTemplateImages
 import no.nav.tsm.sykmelding.template.TemplateMatchResult
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import no.nav.tsm.sykmelding.template.Felter
@@ -32,6 +31,7 @@ sealed interface OcrResult {
     /** [pages] are the raw reads the [sykmelding] was mapped from, one per template page. */
     data class Parsed(val sykmelding: OcrParserSykmelding, val pages: List<PageRead>) : OcrResult
     data object NoMatch : OcrResult
+    data object NotYetSupported : OcrResult
     data class TooManyPages(val pages: Int, val maxPages: Int) : OcrResult
     data class Failed(val reason: String, val cause: Throwable? = null) : OcrResult
 }
@@ -42,6 +42,10 @@ class ParseSykmeldingOcr(
 ) {
 
     private val logger = LoggerFactory.getLogger(javaClass)
+
+    companion object {
+        const val DEFAULT_OCR_DPI = 300
+    }
 
     @WithSpan
     fun doOcr(pdf: File): OcrResult {
@@ -66,7 +70,7 @@ class ParseSykmeldingOcr(
 
     /** As [doOcr], for a PDF already matched, with its fields read at [ocrDpi]. */
     @WithSpan
-    fun doOcr(match: TemplateMatchResult, ocrDpi: Int = PdfTemplateImages.DPI): OcrResult = when (match) {
+    fun doOcr(match: TemplateMatchResult, ocrDpi: Int = DEFAULT_OCR_DPI): OcrResult = when (match) {
         is TemplateMatchResult.Matched -> try {
             parse(match, ocrDpi)
         } catch (e: Exception) {
@@ -75,7 +79,8 @@ class ParseSykmeldingOcr(
         }
 
         TemplateMatchResult.NoMatch -> OcrResult.NoMatch
-        is TemplateMatchResult.TextMatched -> OcrResult.NoMatch
+        is TemplateMatchResult.NotYetSupported -> OcrResult.NotYetSupported
+        is TemplateMatchResult.TextMatched -> match.result
         is TemplateMatchResult.TooManyPages -> OcrResult.TooManyPages(match.pages, match.maxPages)
         is TemplateMatchResult.Error -> OcrResult.Failed(
             match.exception.message ?: match.exception.toString(),
@@ -288,8 +293,8 @@ object SykmeldingOcrMapping {
                 OcrParserAktivitet.IkkeMulig(
                     fom,
                     tom,
-                    checkboxes.state("aktivitet.medisinskeArsaker"),
-                    checkboxes.state("aktivitet.forholdArbeidsplassen"),
+                    medisinskArsak = checkboxes.state("aktivitet.medisinskeArsaker"),
+                    arbeidsrelatertArsak = checkboxes.state("aktivitet.forholdArbeidsplassen"),
                 )
             },
             period("aktivitet.behandlingsdager", listOf("aktivitet.behandlingsdager.dager"), emptyList()) { fom, tom ->

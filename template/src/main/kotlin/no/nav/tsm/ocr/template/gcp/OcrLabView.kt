@@ -1,13 +1,19 @@
 package no.nav.tsm.ocr.template.gcp
 
 import no.nav.tsm.ocr.template.pipeline.TextTemplatePanel
+import no.nav.tsm.ocr.template.testdata.TestDataEditorView
+import no.nav.tsm.sykmelding.model.OcrParserSykmelding
 import no.nav.tsm.sykmelding.ocr.Ocr
+import no.nav.tsm.sykmelding.ocr.OcrResult
 import no.nav.tsm.sykmelding.ocr.PsmMode
 import no.nav.tsm.sykmelding.ocr.TextPart
 import no.nav.tsm.sykmelding.ocr.TextRegion
-import no.nav.tsm.sykmelding.pipeline.CustomTextTemplateParser
-import no.nav.tsm.sykmelding.pipeline.LineField
-import no.nav.tsm.sykmelding.pipeline.TextTemplates
+import no.nav.tsm.sykmelding.ocr.CustomTextTemplateParser
+import no.nav.tsm.sykmelding.ocr.blackAndWhite
+import no.nav.tsm.sykmelding.ocr.readPart
+import no.nav.tsm.sykmelding.template.LineField
+import no.nav.tsm.sykmelding.template.TemplateMatcher
+import no.nav.tsm.sykmelding.template.TextTemplates
 import no.nav.tsm.sykmelding.utils.PageOrientation
 import no.nav.tsm.sykmelding.utils.PageRotation
 import org.apache.pdfbox.Loader
@@ -50,18 +56,24 @@ import javax.swing.SwingWorker
 import javax.swing.WindowConstants
 import javax.swing.table.AbstractTableModel
 import javax.swing.table.TableCellRenderer
+import tools.jackson.module.kotlin.jacksonObjectMapper
 
-
-class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemplates()) : JPanel(BorderLayout(6, 6)) {
-
+class OcrLabView(
+    private val pdf: ByteArray,
+    templates: TextTemplates = TextTemplates(),
+    private val fileName: String = "page",
+    private val xml: XmlContent? = null,
+) : JPanel(BorderLayout(6, 6)) {
 
     private var pageCount = 0
     private var pageIndex = 0
     private var image: BufferedImage? = null
     private var imageDpi = 0
+    private var readImage: BufferedImage? = null
     private var parts: List<TextPart>? = null
     private var regions: List<TextRegion> = emptyList()
-    private var parsed: Map<LineField, List<List<TextPart>>> = emptyMap()
+    private var matchedRows: Map<LineField, List<List<TextPart>>> = emptyMap()
+    private var headerRow: List<TextPart> = emptyList()
     private var parseToken = 0
     private var running = false
     private var rendering = false
@@ -78,8 +90,12 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
     }
     private val rotateLeft = JButton("⟲").apply { toolTipText = "Turn 90° left"; addActionListener { rotate(rotation.turnedLeft()) } }
     private val rotateRight = JButton("⟳").apply { toolTipText = "Turn 90° right"; addActionListener { rotate(rotation.turnedRight()) } }
-    private val dpi = JSpinner(SpinnerNumberModel(300, 72, 600, 25))
+    private val dpi = JSpinner(SpinnerNumberModel(TemplateMatcher.TEXT_DPI, 72, 600, 25))
     private val runButton = JButton("Run OCR").apply { addActionListener { runOcr() } }
+    private val saveTestData = JButton("Save as test data…").apply {
+        toolTipText = "Open this page and its OCR parts in the test data editor, to anonymise it and save it for unit tests."
+        addActionListener { openTestData() }
+    }
     private val whitelist = JTextField(40).apply {
         toolTipText = "Allowed characters for Run OCR, for example 0123456789.-/. Leave empty to allow all characters."
     }
@@ -105,9 +121,10 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
     private val valuesTable = JTable(values).apply {
         setDefaultRenderer(Any::class.java, MultiLineCell(ValueTableModel.COLUMNS.lastIndex))
         autoResizeMode = JTable.AUTO_RESIZE_OFF
-        listOf(50, 280, 60, 220, 300).forEachIndexed { index, width -> columnModel.getColumn(index).preferredWidth = width }
+        listOf(380, 320, 320).forEachIndexed { index, width -> columnModel.getColumn(index).preferredWidth = width }
     }
     private val foundText = JTextArea().apply { isEditable = false; font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
+    private val comparison = JPanel(BorderLayout())
     private val details = JTextArea().apply { isEditable = false; font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
     private val canvas = PageCanvas()
     private val results = JTabbedPane()
@@ -129,13 +146,15 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
                 add(showRegions); add(showValuesOverlay)
                 add(JLabel("Zoom %:")); add(zoom)
                 add(JButton("Copy TSV").apply { addActionListener { copyTsv() } })
+                add(saveTestData)
             })
         }, BorderLayout.NORTH)
         results.apply {
             addTab("Regions", JScrollPane(table))
             addTab("Full text", JScrollPane(fullText))
-            addTab("Template values", JSplitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(valuesTable), JScrollPane(foundText))
+            addTab("Sykmelding", JSplitPane(JSplitPane.VERTICAL_SPLIT, JScrollPane(valuesTable), JScrollPane(foundText))
                 .apply { resizeWeight = 0.6 })
+            addTab("OCR vs XML", null, comparison, "The sykmelding read on this page next to the whole document's Iron Mountain XML.")
         }
         val selected = JScrollPane(details).apply { border = BorderFactory.createTitledBorder("Selected region") }
         val lower = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, selected, templatePanel).apply { resizeWeight = 0.5 }
@@ -217,26 +236,29 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
         val index = pageIndex
         val turn = rotation
         val shown = image?.takeIf { imageDpi == renderDpi }
-        status.text = "OCR on page ${index + 1} (sparse text, $renderDpi DPI) …"
-        object : SwingWorker<Pair<BufferedImage, List<TextPart>>, Unit>() {
+        status.text = "OCR on page ${index + 1} (sparse text, $renderDpi DPI, black and white) …"
+        class Run(val page: BufferedImage, val read: BufferedImage, val parts: List<TextPart>)
+        object : SwingWorker<Run, Unit>() {
             var millis = 0L
-            override fun doInBackground(): Pair<BufferedImage, List<TextPart>> {
+            override fun doInBackground(): Run {
                 val page = shown ?: turn.apply(PreviewContent.renderPdfPage(pdf, index, renderDpi.toFloat()))
+                val read = blackAndWhite(page)
                 val start = System.nanoTime()
-                val parts = ocr.detectParts(page, renderDpi, allowedCharacters, PsmMode.PSM_SPARSE_TEXT)
+                val parts = ocr.detectParts(read, renderDpi, allowedCharacters, PsmMode.PSM_SPARSE_TEXT)
                 millis = (System.nanoTime() - start) / 1_000_000
-                return page to parts
+                return Run(page, read, parts)
             }
 
             override fun done() {
                 running = false
                 updateControls()
                 try {
-                    val (page, read) = get()
-                    image = page
+                    val run = get()
+                    image = run.page
                     imageDpi = renderDpi
-                    setResult(read)
-                    status.text = "${read.sumOf { it.words.size }} words in ${read.size} parts. OCR completed in $millis ms."
+                    readImage = run.read
+                    setResult(run.parts)
+                    status.text = "${run.parts.sumOf { it.words.size }} words in ${run.parts.size} parts. OCR completed in $millis ms."
                 } catch (error: Exception) {
                     val cause = if (error is ExecutionException) error.cause ?: error else error
                     status.text = "OCR failed: ${cause.message ?: cause}"
@@ -248,45 +270,74 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
 
     private fun setResult(read: List<TextPart>?) {
         parts = read
+        if (read == null) readImage = null
         regions = read?.map { it.line }.orEmpty()
         readValues()
+        updateControls()
     }
 
     private fun readValues() {
         val read = parts
+        val page = readImage
+        val pageDpi = imageDpi
         val template = templatePanel.template
         val token = ++parseToken
-        parsed = emptyMap()
-        showValues(emptyList())
-        if (read == null) {
-            foundText.text = "Run OCR to find the fields."
-            foundText.caretPosition = 0
-            showRegionsList()
+        matchedRows = emptyMap()
+        headerRow = emptyList()
+        showRegionsList()
+        if (read == null || template == null) {
+            showSykmelding(null, if (read == null) "Run OCR to read the sykmelding." else "Select a text template to read the sykmelding.")
             return
         }
-        foundText.text = "Running CustomTextTemplateParser …"
-        showRegionsList()
-        object : SwingWorker<Map<LineField, List<List<TextPart>>>, Unit>() {
-            override fun doInBackground(): Map<LineField, List<List<TextPart>>> = CustomTextTemplateParser.parse(read, template)
+        showSykmelding(null, "Running CustomTextTemplateParser …")
+        object : SwingWorker<CustomTextTemplateParser.Page, Unit>() {
+            override fun doInBackground(): CustomTextTemplateParser.Page =
+                CustomTextTemplateParser.read(read, template, page?.let { { part, allowedCharacters -> readPart(it, pageDpi, part, allowedCharacters) } })
 
             override fun done() {
                 if (token != parseToken) return
                 try {
-                    parsed = get()
-                    showValues(template?.fields.orEmpty().map { ValueRow(it, parsed[it]?.let(::valueText)) })
-                    foundText.text = if (template == null) "Custom parser completed. Select a text template to match fields."
-                        else "Custom parser — text template ${template.name}: ${parsed.size}/${template.fields.size} fields found."
+                    val found = get()
+                    val result = found.result
+                    matchedRows = found.rows
+                    headerRow = found.header
+                    val sykmelding = (result as? OcrResult.Parsed)?.sykmelding
+                    showSykmelding(sykmelding, when {
+                        sykmelding != null -> "Text template ${template.name} — final OCR output:\n\n" +
+                            jacksonObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(sykmelding)
+                        result is OcrResult.NotYetSupported -> "Not supported yet: the page has the word sykmelding, " +
+                            "on a form that text template ${template.name} does not read."
+                        else -> "No match: the page is not read as text template ${template.name}. " +
+                            "The word sykmelding, the text NAVs eksemplar, FOLKETRYGDEN with " +
+                            "an fnr on its row, or the columns of field numbers, field names and values below it, were not found."
+                    })
                 } catch (error: Exception) {
                     val cause = if (error is ExecutionException) error.cause ?: error else error
-                    foundText.text = "Could not read the fields: ${cause.message ?: cause}"
+                    showSykmelding(null, "Could not read the sykmelding: ${cause.message ?: cause}")
                 }
-                foundText.caretPosition = 0
                 showRegionsList()
             }
         }.execute()
     }
 
-    private fun showValues(rows: List<ValueRow>) {
+    private fun showSykmelding(sykmelding: OcrParserSykmelding?, text: String) {
+        showValues(sykmelding?.let(::sykmeldingValues).orEmpty())
+        foundText.text = text
+        foundText.caretPosition = 0
+        fun message(text: String) = JScrollPane(JTextArea(text).apply { isEditable = false; lineWrap = true; wrapStyleWord = true })
+        val document = xml?.document
+        comparison.removeAll()
+        comparison.add(when {
+            xml == null -> message("No XML was loaded for this PDF when the OCR lab was opened.")
+            document == null -> message(xml.fields)
+            sykmelding == null -> message(text)
+            else -> OcrXmlComparisonPanel(compareMappedOcrWithXml(sykmelding, document))
+        }, BorderLayout.CENTER)
+        comparison.revalidate()
+        comparison.repaint()
+    }
+
+    private fun showValues(rows: List<SykmeldingValue>) {
         values.rows = rows
         values.fireTableDataChanged()
         rows.indices.forEach { row ->
@@ -318,7 +369,7 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
         }
         details.text = buildString {
             append("Region ${index + 1}: ${part.line.text}\n")
-            parsed.forEach { (field, rows) ->
+            matchedRows.forEach { (field, rows) ->
                 if (rows.any { part in it }) append("\n${field.number} ${field.name}: ${valueText(rows)}\n")
             }
             append("\nWords:\n")
@@ -345,7 +396,15 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
         previous.isEnabled = idle && pageIndex > 0
         next.isEnabled = idle && pageIndex < pageCount - 1
         runButton.isEnabled = idle && image != null
+        saveTestData.isEnabled = idle && image != null && parts != null
         whitelist.isEnabled = idle
+    }
+
+    private fun openTestData() {
+        val page = image ?: return
+        val read = parts ?: return
+        val base = fileName.substringBeforeLast('.').replace(Regex("[/\\\\:]"), "_").trimStart('.').ifEmpty { "page" }
+        TestDataEditorView.open("$fileName, page ${pageIndex + 1}", page, imageDpi, read, "$base-p${pageIndex + 1}", templatePanel.template)
     }
 
     private fun selectedIndex(): Int? = table.selectedRow.takeIf { it in model.rows.indices }
@@ -423,7 +482,7 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
                 if (showValuesOverlay.isSelected) {
                     g2.color = Color(0, 150, 0)
                     g2.stroke = BasicStroke(2f)
-                    parsed.values.forEach { rows -> rows.forEach { row -> row.forEach { g2.draw(scaled(it.line, s)) } } }
+                    (matchedRows.values.flatten() + listOf(headerRow)).forEach { row -> row.forEach { g2.draw(scaled(it.line, s)) } }
                 }
             } finally {
                 g2.dispose()
@@ -455,25 +514,21 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
         }
     }
 
-    private class ValueRow(val field: LineField, val value: String?)
-
     private class ValueTableModel : AbstractTableModel() {
-        var rows: List<ValueRow> = emptyList()
+        var rows: List<SykmeldingValue> = emptyList()
         override fun getRowCount() = rows.size
         override fun getColumnCount() = COLUMNS.size
         override fun getColumnName(column: Int) = COLUMNS[column]
         override fun getValueAt(row: Int, column: Int): String = rows[row].let {
             when (column) {
-                0 -> it.field.number
-                1 -> it.field.name
-                2 -> it.field.layout.name.lowercase()
-                3 -> it.field.field?.navn ?: "(none)"
-                else -> it.value ?: "(not found)"
+                0 -> it.path
+                1 -> it.value
+                else -> it.note.orEmpty()
             }
         }
 
         companion object {
-            val COLUMNS = listOf("No.", "Field", "Value is", "Global field", "Value")
+            val COLUMNS = listOf("Field", "Value", "Note")
         }
     }
 
@@ -491,11 +546,11 @@ class OcrLabView(private val pdf: ByteArray, templates: TextTemplates = TextTemp
     }
 
     companion object {
-        fun open(fileName: String, pdf: ByteArray) {
+        fun open(fileName: String, pdf: ByteArray, xml: XmlContent? = null) {
             SwingUtilities.invokeLater {
                 JFrame("OCR lab — $fileName").apply {
                     defaultCloseOperation = WindowConstants.DISPOSE_ON_CLOSE
-                    contentPane = OcrLabView(pdf)
+                    contentPane = OcrLabView(pdf, fileName = fileName, xml = xml)
                     pack()
                     setLocationRelativeTo(null)
                     isVisible = true

@@ -146,7 +146,7 @@ internal data class TestSettings(
             if (ocrDpi < MIN_TESSERACT_DPI) "; Tesseract is told $MIN_TESSERACT_DPI DPI, the lowest it accepts" else ""
 
     companion object {
-        val PRODUCTION = TestSettings(PdfTemplateImages.DPI, TemplateMatcher.DEFAULT_FEATURE_DPI, PdfTemplateImages.DPI)
+        val PRODUCTION = TestSettings(TemplateMatcher.DEFAULT_RENDER_DPI, TemplateMatcher.DEFAULT_FEATURE_DPI, ParseSykmeldingOcr.DEFAULT_OCR_DPI)
         val RENDER_RANGE = 25..1200
         val OCR_RANGE = 25..1200
         private const val MIN_FEATURE_DPI = 10
@@ -214,7 +214,7 @@ internal typealias OcrFields = Map<Felter, FieldText>
 /**
  * One document's result. [MATCHED][PdfStatus.MATCHED]: every page of one template was found in the file, and
  * [outcomes] lists those template pages in template order. [TEXT_MATCHED][PdfStatus.TEXT_MATCHED]: no image template
- * was, but a text template's fields were found on one page; there are no outcomes, and [message] lists what was found.
+ * was, but a text template's fields were found on one page; there are no outcomes, and [message] says which.
  * [reads] has the fields read from each outcome, in the same order; null when they could not be read ([ocrError] says
  * why). [millis] is the whole test, [ocrMillis] the OCR part.
  * [settings]: how it was tested (resolutions, matching methods); null when it was not tested (e.g. could not be downloaded).
@@ -235,6 +235,7 @@ internal class PdfTestResult(
     val checkboxes: List<Map<Felter, CheckboxReading>>? get() = reads?.map { it.checkboxes }
     val segments: List<List<FieldSegment>>? get() = reads?.map { it.segments }
     val statusText: String get() = if (status == PdfStatus.RUNNING && message.isNotEmpty()) message else status.toString()
+    val matched: Boolean get() = status == PdfStatus.MATCHED || status == PdfStatus.TEXT_MATCHED
 
     /** The matched template and its pages, for the file list; empty when nothing matched. */
     val templateText: String
@@ -265,6 +266,11 @@ internal class PdfTestResult(
                         appendLine("  ${outcome.template.label}:")
                         appendLine(fieldLines(page, numberOf).trimEnd().prependIndent("    "))
                     }
+                }
+                sykmelding?.takeIf { status == PdfStatus.TEXT_MATCHED }?.let {
+                    appendLine()
+                    appendLine("Sykmelding read with the text template, typed fields read again as their type:")
+                    appendLine(sykmeldingLines(it).prependIndent("  "))
                 }
             }
         }
@@ -335,7 +341,7 @@ internal fun pageCount(file: File): Int = PdfTemplateImages.pageCount(file)
  * resolutions and methods, and [ocrDpi]. Never throws: an unreadable file becomes [PdfStatus.ERROR], and a match whose fields
  * could not be read stays [PdfStatus.MATCHED] with the error in its message.
  */
-internal fun testAgainstTemplates(file: File, prepared: PreparedMatcher, ocrDpi: Int = PdfTemplateImages.DPI, reading: () -> Unit = {}): PdfTestResult {
+internal fun testAgainstTemplates(file: File, prepared: PreparedMatcher, ocrDpi: Int = ParseSykmeldingOcr.DEFAULT_OCR_DPI, reading: () -> Unit = {}): PdfTestResult {
     val started = System.nanoTime()
     fun elapsed() = (System.nanoTime() - started) / 1_000_000
     val matcher = prepared.matcher
@@ -355,8 +361,11 @@ internal fun testAgainstTemplates(file: File, prepared: PreparedMatcher, ocrDpi:
             val ok = parsed as? OcrResult.Parsed
             PdfTestResult(PdfStatus.MATCHED, error.orEmpty(), pages, outcomes, elapsed(), ok?.pages, ocrMillis, error, settings, ok?.sykmelding)
         }
-        is TemplateMatchResult.TextMatched -> PdfTestResult(PdfStatus.TEXT_MATCHED, textMatchText(result), pages, millis = elapsed(), settings = settings)
+        is TemplateMatchResult.TextMatched -> PdfTestResult(PdfStatus.TEXT_MATCHED, textMatchText(result), pages, millis = elapsed(),
+            settings = settings, sykmelding = result.result.sykmelding)
         TemplateMatchResult.NoMatch -> PdfTestResult(PdfStatus.NO_MATCH, "No template has every one of its pages in this file.", pages, millis = elapsed(), settings = settings)
+        is TemplateMatchResult.NotYetSupported -> PdfTestResult(PdfStatus.NO_MATCH,
+            "Not supported yet: page ${result.page} is a sykmelding, by its heading, on a form that no template reads.", pages, millis = elapsed(), settings = settings)
         is TemplateMatchResult.Error -> PdfTestResult(PdfStatus.ERROR, result.exception.message ?: result.exception.toString(), pages, millis = elapsed(), settings = settings)
         is TemplateMatchResult.TooManyPages -> PdfTestResult(PdfStatus.NO_MATCH,
             "${result.pages} pages: the matcher takes at most ${result.maxPages}, so the file is not matched against any template.", pages, millis = elapsed(), settings = settings)
@@ -378,17 +387,9 @@ private fun outcome(group: TemplateGroup, index: Int, template: Template, aligne
     }
 }
 
-
-private fun textMatchText(match: TemplateMatchResult.TextMatched): String = buildString {
-    val fields = match.template.fields
-    append("Text template ${match.template.name} on page ${match.page}: ${match.fields.size} of ${fields.size} fields found.")
-    append("\nProduction reads no text templates: it gives no match for this file.")
-    fields.forEach { field ->
-        val rows = match.fields[field]
-        val text = rows?.joinToString(" / ") { row -> row.joinToString(" ") { it.line.text } } ?: "not found"
-        append("\n${field.number.padEnd(8)} ${field.name.padEnd(36)} $text")
-    }
-}
+private fun textMatchText(match: TemplateMatchResult.TextMatched): String =
+    "Text template ${match.template.name} on page ${match.page}, read as the OCR lab reads it: at ${TemplateMatcher.TEXT_DPI} DPI, " +
+        "whatever the render DPI."
 
 internal fun plural(count: Int) = if (count == 1) "" else "s"
 

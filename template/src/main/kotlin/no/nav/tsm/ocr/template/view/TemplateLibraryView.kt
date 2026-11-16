@@ -1,6 +1,6 @@
 package no.nav.tsm.ocr.template.view
 
-import no.nav.tsm.sykmelding.pipeline.TextTemplates
+import no.nav.tsm.sykmelding.template.TextTemplates
 import no.nav.tsm.sykmelding.template.TemplateGroup
 import no.nav.tsm.sykmelding.template.TemplateLibrary
 import java.awt.BorderLayout

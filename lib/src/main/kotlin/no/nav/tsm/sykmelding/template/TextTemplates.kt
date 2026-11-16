@@ -1,13 +1,10 @@
-package no.nav.tsm.sykmelding.pipeline
+package no.nav.tsm.sykmelding.template
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import no.nav.tsm.sykmelding.ocr.TextPart
-import no.nav.tsm.sykmelding.template.FIELD_NUMBER_ORDER
-import no.nav.tsm.sykmelding.template.FieldDefinition
-import no.nav.tsm.sykmelding.template.TemplateFiles
 import tools.jackson.module.kotlin.jacksonObjectMapper
 import tools.jackson.module.kotlin.readValue
 import java.io.File
+import java.io.InputStream
 
 enum class FieldLayout {
     INLINE,
@@ -31,13 +28,18 @@ data class TextTemplate(val name: String, val fields: List<LineField> = emptyLis
     }
 
     fun inFormOrder(): TextTemplate = copy(fields = fields.sortedWith(compareBy(FIELD_NUMBER_ORDER) { it.number }))
-
-    fun matches(found: Map<LineField, List<List<TextPart>>>): Boolean = found.isNotEmpty()
 }
 
 class TextTemplates(val directory: File = File("lib/src/main/resources/text-templates")) {
     companion object {
         private val mapper = jacksonObjectMapper()
+
+        fun fromResources(): List<TextTemplate> = resource("index.txt").bufferedReader().useLines { lines ->
+            lines.map(String::trim).filter { it.endsWith(".json") }.toList()
+        }.map { path -> resource(path).use { mapper.readValue<TextTemplate>(it).copy(name = path.removeSuffix(".json")) } }
+
+        private fun resource(path: String): InputStream =
+            requireNotNull(TextTemplates::class.java.getResourceAsStream("/text-templates/$path")) { "Missing /text-templates/$path on the classpath" }
     }
 
     fun names(): List<String> =
@@ -53,9 +55,5 @@ class TextTemplates(val directory: File = File("lib/src/main/resources/text-temp
         TemplateFiles.writeJson(file(template.name), template)
     }
 
-    private fun file(name: String): File {
-        val trimmed = name.trim()
-        require(trimmed.isNotEmpty() && !trimmed.startsWith(".") && trimmed.none { it in "/\\:" }) { "Not a usable template name: '$name'" }
-        return directory.resolve("$trimmed.json")
-    }
+    private fun file(name: String): File = directory.resolve("${TemplateFiles.fileName(name, "template")}.json")
 }

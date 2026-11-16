@@ -1,6 +1,6 @@
 package no.nav.tsm.ocr.template.gcp
 
-import no.nav.tsm.sykmelding.pipeline.TextTemplates
+import no.nav.tsm.sykmelding.template.TextTemplates
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.pdmodel.PDPage
 import org.apache.pdfbox.pdmodel.PDPageContentStream
@@ -99,24 +99,6 @@ class OcrLabTest {
 
     private fun button(lab: OcrLabView, text: String): JButton = descendants(lab).filterIsInstance<JButton>().single { it.text == text }
 
-    private fun awaitEnabled(button: JButton) {
-        val ready = CountDownLatch(1)
-        val listener = PropertyChangeListener { if (it.newValue == true) ready.countDown() }
-        SwingUtilities.invokeAndWait {
-            button.addPropertyChangeListener("enabled", listener)
-            if (button.isEnabled) ready.countDown()
-        }
-        try {
-            assertTrue(ready.await(45, TimeUnit.SECONDS), "Timed out waiting for ${button.text}")
-        } finally {
-            SwingUtilities.invokeAndWait { button.removePropertyChangeListener("enabled", listener) }
-        }
-    }
-
-    private fun descendants(parent: Container): List<Component> = parent.components.flatMap {
-        listOf(it) + if (it is Container) descendants(it) else emptyList()
-    }
-
     private fun pdf(pages: Int = 1): ByteArray = PDDocument().use { document ->
         repeat(pages) {
             val page = PDPage().also(document::addPage)
@@ -130,4 +112,22 @@ class OcrLabTest {
         }
         ByteArrayOutputStream().also(document::save).toByteArray()
     }
+}
+
+internal fun awaitEnabled(button: JButton) {
+    val ready = CountDownLatch(1)
+    val listener = PropertyChangeListener { if (it.newValue == true) ready.countDown() }
+    SwingUtilities.invokeAndWait {
+        button.addPropertyChangeListener("enabled", listener)
+        if (button.isEnabled) ready.countDown()
+    }
+    try {
+        assertTrue(ready.await(45, TimeUnit.SECONDS), "Timed out waiting for ${button.text}")
+    } finally {
+        SwingUtilities.invokeAndWait { button.removePropertyChangeListener("enabled", listener) }
+    }
+}
+
+internal fun descendants(parent: Container): List<Component> = parent.components.flatMap {
+    listOf(it) + if (it is Container) descendants(it) else emptyList()
 }

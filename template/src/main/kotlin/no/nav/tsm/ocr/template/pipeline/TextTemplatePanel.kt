@@ -1,9 +1,10 @@
 package no.nav.tsm.ocr.template.pipeline
 
-import no.nav.tsm.sykmelding.pipeline.FieldLayout
-import no.nav.tsm.sykmelding.pipeline.LineField
-import no.nav.tsm.sykmelding.pipeline.TextTemplate
-import no.nav.tsm.sykmelding.pipeline.TextTemplates
+import no.nav.tsm.sykmelding.template.FIELD_NUMBER
+import no.nav.tsm.sykmelding.template.FieldLayout
+import no.nav.tsm.sykmelding.template.LineField
+import no.nav.tsm.sykmelding.template.TextTemplate
+import no.nav.tsm.sykmelding.template.TextTemplates
 import no.nav.tsm.sykmelding.template.FieldCatalog
 import no.nav.tsm.sykmelding.template.FieldDefinition
 import java.awt.BorderLayout
@@ -302,8 +303,6 @@ class TextTemplatePanel(
     private companion object {
         fun label(definition: FieldDefinition) = (definition.number?.let { "$it  " } ?: "") + "${definition.navn} (${definition.type})" +
             (definition.description?.let { " — $it" } ?: "")
-
-        val FIELD_NUMBER = Regex("""\d+(\.\d+)*""")
 
         fun fieldNumber(typed: String) = typed.trim().replace(',', '.').removeSuffix(".")
     }

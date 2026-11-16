@@ -1,6 +1,5 @@
 package no.nav.tsm.ocr.template.gcp
 
-import no.nav.tsm.ocr.template.testing.DEFAULT_PARALLEL
 import no.nav.tsm.ocr.template.testing.GuideImagePanel
 import no.nav.tsm.ocr.template.testing.GuidePane
 import no.nav.tsm.ocr.template.testing.previewBoxes
@@ -11,8 +10,8 @@ import no.nav.tsm.sykmelding.model.CheckboxState
 import no.nav.tsm.sykmelding.ocr.CheckboxReading
 import no.nav.tsm.sykmelding.ocr.FieldSegment
 import no.nav.tsm.sykmelding.ocr.skipsOcr
-import no.nav.tsm.sykmelding.pipeline.TextTemplate
-import no.nav.tsm.sykmelding.pipeline.TextTemplates
+import no.nav.tsm.sykmelding.template.TextTemplate
+import no.nav.tsm.sykmelding.template.TextTemplates
 import no.nav.tsm.sykmelding.template.FieldCatalog
 import no.nav.tsm.sykmelding.template.HomographyMethod
 import no.nav.tsm.sykmelding.template.KeypointDetector
@@ -40,8 +39,6 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.time.Instant
 import java.util.concurrent.ExecutionException
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.prefs.Preferences
 import javax.swing.BorderFactory
 import javax.swing.Box
@@ -128,10 +125,6 @@ class BucketTemplateTestView(
 
     // Running tests: matching is lib's TemplateMatcher, as in production. The resolutions and the matching methods can
     // be changed, to see how matching and OCR fare with others than production's.
-    private val parallel = JSpinner(SpinnerNumberModel(DEFAULT_PARALLEL, 1, Runtime.getRuntime().availableProcessors(), 1)).apply {
-        toolTipText = "At most this many files are matched at the same time. The keypoint detector already uses several cores " +
-            "per page, and each file being matched needs several hundred MB of memory."
-    }
     private val renderDpi = DpiField("Render DPI", listOf(150, 200, 300, 400, 600), TestSettings.PRODUCTION.renderDpi,
         { TestSettings.RENDER_RANGE }, settings, RENDER_DPI, ::tell).apply {
         toolTipText = "<html>The PDF's pages are rendered at this resolution to be matched. Production: ${TestSettings.PRODUCTION.renderDpi} DPI, " +
@@ -191,7 +184,7 @@ class BucketTemplateTestView(
     private val order = JComboBox(RunOrder.entries.toTypedArray()).apply { toolTipText = "Which of the shown files to test" }
     private val untestedOnly = JCheckBox("Untested only", true).apply { toolTipText = "Skip files that already have a result" }
     private val run = JButton("Run").apply {
-        toolTipText = "Test the files concurrently, up to the Parallel tests limit. Uses the list's current sort and filter."
+        toolTipText = "Test the files, one at a time. Uses the list's current sort and filter."
         addActionListener { runNext() }
     }
     private val stop = JButton("Stop").apply { isEnabled = false; addActionListener { requestStop() } }
@@ -344,7 +337,7 @@ class BucketTemplateTestView(
                 downloadFolder))
             add(flowRow(JLabel("Filter:"), filter, pdfOnly, xmlToo, withXmlOnly, JLabel("Show:"), resultFilter, count))
             add(flowRow(testSelected, Box.createHorizontalStrut(18), JLabel("Test"), runCount, JLabel("of the shown files"), order,
-                untestedOnly, run, stop, Box.createHorizontalStrut(18), JLabel("Parallel files:"), parallel))
+                untestedOnly, run, stop))
             add(flowRow(JLabel("Matching: render the PDF at"), renderDpi, JLabel("DPI, find"), detector, JLabel("keypoints at"), featureDpi,
                 JLabel("DPI, filter the matches with"), matchFilter, JLabel("and fit the homography with"), homography,
                 JLabel("within"), tolerance, JLabel("px")))
@@ -707,20 +700,13 @@ class BucketTemplateTestView(
     }
 
     /**
-     * Matches [chosen] with lib's TemplateMatcher, up to [parallel] files at a time, at the resolutions chosen. The
+     * Matches [chosen] with lib's TemplateMatcher, one file at a time, at the resolutions chosen. The
      * matcher (which detects the features of every template page when created) is reused by later runs while the
      * library and the matching resolutions are unchanged.
      */
     private fun startRun(chosen: List<BucketFile>): Boolean {
         if (job != null || closed || chosen.isEmpty()) return false
         val current = source ?: return false
-        val threads = try {
-            parallel.commitEdit()
-            (parallel.value as Number).toInt()
-        } catch (error: Exception) {
-            status.text = "Invalid number of parallel files: ${error.message}"
-            return false
-        }
         val testSettings = testSettings() ?: return false
         val keys = chosen.map { resultKey(current.bucket, it) }
         val previous = keys.associateWith { results[it] }
@@ -735,36 +721,25 @@ class BucketTemplateTestView(
 
         val worker = object : SwingWorker<List<String>, Unit>() {
             override fun doInBackground(): List<String> {
-                val fileWorkers = Executors.newFixedThreadPool(threads) { task -> Thread(task, "bucket-template-file").apply { isDaemon = true } }
-                try {
-                    val (matcher, problems) = matcherFor(::say, testSettings)
-                    for ((index, file) in chosen.withIndex()) {
-                        val key = keys[index]
-                        fileWorkers.submit {
-                            if (stopRequested || closed) return@submit
-                            say("Testing file ${index + 1} of ${chosen.size}: ${file.fileName} …")
-                            post(key, PdfTestResult(PdfStatus.RUNNING, "Downloading …"))
-                            // The file is kept in use while it is tested, so "Clear downloads" leaves it alone.
-                            val result = try {
-                                downloadCache.using(current, file) { cached ->
-                                    if (!file.isPdf) PdfTestResult(PdfStatus.ERROR, "Not a PDF: the matcher takes PDFs only.") else {
-                                        post(key, PdfTestResult(PdfStatus.RUNNING, "Matching …"))
-                                        testAgainstTemplates(cached, matcher, testSettings.ocrDpi) { post(key, PdfTestResult(PdfStatus.RUNNING, "Reading fields (OCR) …")) }
-                                    }
-                                }
-                            } catch (error: Exception) {
-                                PdfTestResult(PdfStatus.ERROR, "Could not download the file: " + describeGcpError(error).replace("\n", " — "))
+                val (matcher, problems) = matcherFor(::say, testSettings)
+                for ((index, file) in chosen.withIndex()) {
+                    if (stopRequested || closed) break
+                    val key = keys[index]
+                    say("Testing file ${index + 1} of ${chosen.size}: ${file.fileName} …")
+                    post(key, PdfTestResult(PdfStatus.RUNNING, "Downloading …"))
+                    val result = try {
+                        downloadCache.using(current, file) { cached ->
+                            if (!file.isPdf) PdfTestResult(PdfStatus.ERROR, "Not a PDF: the matcher takes PDFs only.") else {
+                                post(key, PdfTestResult(PdfStatus.RUNNING, "Matching …"))
+                                testAgainstTemplates(cached, matcher, testSettings.ocrDpi) { post(key, PdfTestResult(PdfStatus.RUNNING, "Reading fields (OCR) …")) }
                             }
-                            post(key, result)
                         }
+                    } catch (error: Exception) {
+                        PdfTestResult(PdfStatus.ERROR, "Could not download the file: " + describeGcpError(error).replace("\n", " — "))
                     }
-                    fileWorkers.shutdown()
-                    fileWorkers.awaitTermination(1, TimeUnit.DAYS)
-                    return problems
-                } finally {
-                    fileWorkers.shutdownNow()
-                    fileWorkers.awaitTermination(1, TimeUnit.DAYS)
+                    post(key, result)
                 }
+                return problems
             }
 
             override fun done() {
@@ -1038,7 +1013,7 @@ class BucketTemplateTestView(
         val content = comparisonXml
         val document = content?.document
         val mapped = try {
-            if (result?.status == PdfStatus.MATCHED) result.sykmelding else null
+            if (result?.matched == true) result.sykmelding else null
         } catch (error: Exception) {
             finalOcrText = "Could not map the final OCR output: ${error.message ?: error}"
             xmlBesideOcr.showFinalOcr(finalOcrText)
@@ -1053,8 +1028,8 @@ class BucketTemplateTestView(
         }
         finalOcrText = when {
             shown?.isPdf != true -> "Select a PDF to see its final OCR output."
-            result?.status != PdfStatus.MATCHED -> "Test the selected PDF first. A matched document is required for final OCR output."
-            result.reads == null -> result.ocrError ?: "The document's OCR fields have not been read."
+            result == null || !result.matched -> "Test the selected PDF first. A matched document is required for final OCR output."
+            mapped == null && result.reads == null -> result.ocrError ?: "The document's OCR fields have not been read."
             mapped == null -> "No production mapping is available for template ${result.outcomes.firstOrNull()?.template?.group}."
             else -> jacksonObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(mapped)
         }
@@ -1062,14 +1037,14 @@ class BucketTemplateTestView(
         var ready = false
         comparisonText.text = when {
             shown?.isPdf != true -> "Select a PDF to compare its mapped OCR result with the Iron Mountain XML."
-            result?.status != PdfStatus.MATCHED -> "Test the selected PDF first. A matched document is required for comparison."
-            result.reads == null -> result.ocrError ?: "The document's OCR fields have not been read."
+            result == null || !result.matched -> "Test the selected PDF first. A matched document is required for comparison."
+            mapped == null && result.reads == null -> result.ocrError ?: "The document's OCR fields have not been read."
             content == null -> "No XML is loaded for this PDF. See the XML tab for availability or loading errors."
             document == null -> content.fields
             else -> try {
                 if (mapped == null) finalOcrText
                 else {
-                    val comparison = compareMappedOcrWithXml(mapped, document)
+                    val comparison = compareMappedOcrWithXml(mapped, document, textTemplate = result.status == PdfStatus.TEXT_MATCHED)
                     val report = "${shown?.fileName}\n\n" + comparison.describe()
                     mappedXmlComparison = comparison
                     ready = true
@@ -1423,7 +1398,7 @@ class BucketTemplateTestView(
     private fun openOcrLab() {
         val file = shown ?: return
         val current = source ?: return
-        readShown(file, current) { OcrLabView.open(file.fileName, it) }
+        readShown(file, current) { OcrLabView.open(file.fileName, it, comparisonXml.takeIf { shown === file }) }
     }
 
     private fun readShown(file: BucketFile, current: BucketSource, finished: () -> Unit = {}, use: (ByteArray) -> Unit) {
@@ -1547,7 +1522,7 @@ class BucketTemplateTestView(
         testSelected.text = if (selected > 1) "Test $selected selected" else "Test selected"
         run.isEnabled = !running && source != null
         stop.isEnabled = running && !stopRequested
-        listOf(parallel, runCount, order, untestedOnly, reloadTemplates, chooseTemplates, renderDpi, featureDpi, ocrDpi, detector,
+        listOf(runCount, order, untestedOnly, reloadTemplates, chooseTemplates, renderDpi, featureDpi, ocrDpi, detector,
             matchFilter, homography, tolerance, productionDpi)
             .forEach { it.isEnabled = !running }
         val file = shown

@@ -20,7 +20,7 @@ data class FieldDefinition(
     val receivedSykmeldingName: String? = null,
 )
 
-private val FIELD_NUMBER = Regex("""\d+(\.\d+)*""")
+val FIELD_NUMBER = Regex("""\d+(\.\d+)*""")
 
 val FIELD_NUMBER_ORDER: Comparator<String?> = nullsLast(Comparator<String> { a, b -> compareNumbers(numberParts(a), numberParts(b)) })
 

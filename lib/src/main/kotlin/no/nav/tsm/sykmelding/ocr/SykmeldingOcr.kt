@@ -1,7 +1,13 @@
 package no.nav.tsm.sykmelding.ocr
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import no.nav.tsm.sykmelding.utils.TessData
 import no.nav.tsm.sykmelding.utils.packed
+import no.nav.tsm.sykmelding.utils.toBufferedImage
+import no.nav.tsm.sykmelding.utils.toMat
+import no.nav.tsm.sykmelding.utils.use
+import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
 import org.bytedeco.tesseract.PageIterator
 import org.bytedeco.tesseract.ResultIterator
 import org.bytedeco.tesseract.TessBaseAPI
@@ -111,15 +117,18 @@ class Ocr(trainedData: OcrTrainedData = OcrTrainedData.NOR_FAST) {
 
     companion object {
         private val engines = ConcurrentHashMap<String, TessBaseAPI>()
+        @Volatile
+        private var ended = false
 
         init {
             Runtime.getRuntime().addShutdownHook(Thread {
-                engines.values.forEach { it.End() }
+                ended = true
+                engines.values.forEach { synchronized(it) { it.End() } }
             })
         }
 
         private fun engine(trainedData: OcrTrainedData): TessBaseAPI = engines.computeIfAbsent(trainedData.language) { language ->
-            TessData.engine(language, OEM_LSTM_ONLY).apply { SetPageSegMode(PSM_AUTO) }
+            TessData.engine(language, OEM_DEFAULT).apply { SetPageSegMode(PSM_AUTO) }
         }
     }
 
@@ -127,6 +136,7 @@ class Ocr(trainedData: OcrTrainedData = OcrTrainedData.NOR_FAST) {
         val grayscale = grayscale(img)
 
         return synchronized(tesseract) {
+            check(!ended) { "Tesseract is ended: the JVM is shutting down" }
             tesseract.setPage(grayscale, psmMode, dpi)
             val textPointer = tesseract.GetUTF8Text()
             check(textPointer != null && !textPointer.isNull) { "OCR recognition failed" }
@@ -134,7 +144,7 @@ class Ocr(trainedData: OcrTrainedData = OcrTrainedData.NOR_FAST) {
                 textPointer.getString(Charsets.UTF_8)
             } finally {
                 TessDeleteText(textPointer)
-                tesseract.Clear()
+                tesseract.forgetPage()
             }
         }
     }
@@ -158,6 +168,7 @@ class Ocr(trainedData: OcrTrainedData = OcrTrainedData.NOR_FAST) {
     }
 
     internal fun <T> withEngine(allowedCharacters: String? = null, block: (TessBaseAPI) -> T): T = synchronized(tesseract) {
+        check(!ended) { "Tesseract is ended: the JVM is shutting down" }
         try {
             allowedCharacters?.let {
                 check(tesseract.SetVariable(WHITELIST, it)) { "Tesseract does not know $WHITELIST" }
@@ -165,9 +176,14 @@ class Ocr(trainedData: OcrTrainedData = OcrTrainedData.NOR_FAST) {
             block(tesseract)
         } finally {
             if (allowedCharacters != null) tesseract.SetVariable(WHITELIST, "")
-            tesseract.Clear()
+            tesseract.forgetPage()
         }
     }
+}
+
+private fun TessBaseAPI.forgetPage() {
+    Clear()
+    ClearAdaptiveClassifier()
 }
 
 internal fun TessBaseAPI.setPage(page: BufferedImage, psmMode: PsmMode, dpi: Int?) {
@@ -256,3 +272,10 @@ internal fun lineBaseline(iterator: PageIterator, left: Int, right: Int, bottom:
 private const val WHITELIST = "tessedit_char_whitelist"
 
 internal fun grayscale(image: BufferedImage): BufferedImage = packed(image, BufferedImage.TYPE_BYTE_GRAY)
+
+fun blackAndWhite(page: BufferedImage): BufferedImage = toMat(grayscale(page)).use { gray ->
+    Mat().use { both ->
+        Imgproc.threshold(gray, both, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+        toBufferedImage(both)
+    }
+}

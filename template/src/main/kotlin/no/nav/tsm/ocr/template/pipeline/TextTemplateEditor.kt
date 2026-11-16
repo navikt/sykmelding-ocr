@@ -1,6 +1,6 @@
 package no.nav.tsm.ocr.template.pipeline
 
-import no.nav.tsm.sykmelding.pipeline.TextTemplates
+import no.nav.tsm.sykmelding.template.TextTemplates
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.event.WindowAdapter

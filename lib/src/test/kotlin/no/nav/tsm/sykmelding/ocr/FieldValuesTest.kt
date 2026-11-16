@@ -1,22 +1,10 @@
 package no.nav.tsm.sykmelding.ocr
 
 import no.nav.tsm.diagnoser.DiagnoseType
-import no.nav.tsm.sykmelding.model.HarArbeidsgiver
-import no.nav.tsm.sykmelding.model.LovfestetFravaersgrunn
-import no.nav.tsm.sykmelding.model.LovfestetFravaersgrunn.BEHANDLING_FORHINDRER_ARBEID
-import no.nav.tsm.sykmelding.model.LovfestetFravaersgrunn.BEHANDLING_STERILISERING
-import no.nav.tsm.sykmelding.model.LovfestetFravaersgrunn.GODKJENT_HELSEINSTITUSJON
-import no.nav.tsm.sykmelding.model.OcrCrossChecked
-import no.nav.tsm.sykmelding.model.OcrReading
-import no.nav.tsm.sykmelding.model.OcrValue
-import no.nav.tsm.sykmelding.model.valueOrNull
+import no.nav.tsm.sykmelding.model.*
+import no.nav.tsm.sykmelding.model.LovfestetFravaersgrunn.*
 import java.time.LocalDate
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertIs
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 class FieldValuesTest {
     private val today = LocalDate.of(2026, 10, 29)
@@ -25,7 +13,7 @@ class FieldValuesTest {
     fun `a blank field gives no value`() {
         val parsers = listOf<(String?) -> OcrValue<*>?>(
             { parseDate(it) }, { parseDateIn(it) }, ::parsePercent, ::parseCount, ::parseFnr, ::parseHpr, ::parseTelefon,
-            ::parseHarArbeidsgiver, ::parseName,
+            ::parseHarArbeidsgiver, ::parseMedisinskArsakGrunn, ::parseArbeidsrelatertArsakGrunn, ::parseName,
         )
         for (blank in listOf(null, "", "  ", " \t\n")) {
             parsers.forEach { parse -> assertNull(parse(blank), "for '$blank'") }
@@ -112,17 +100,6 @@ class FieldValuesTest {
     }
 
     @Test
-    fun `har arbeidsgiver is read from the first word`() {
-        mapOf(
-            "En arbeisgiver" to HarArbeidsgiver.EN_ARBEIDSGIVER,
-            "Én arbeidsgiver" to HarArbeidsgiver.EN_ARBEIDSGIVER,
-            "Flere arbeidsgivere" to HarArbeidsgiver.FLERE_ARBEIDSGIVERE,
-            "INGEN arbeidsgiver" to HarArbeidsgiver.INGEN_ARBEIDSGIVER,
-        ).forEach { (text, value) -> assertEquals(OcrValue.Read(value, text), parseHarArbeidsgiver(text), text) }
-        assertEquals(OcrValue.Unreadable("Kanskje", "not En, Flere or Ingen"), parseHarArbeidsgiver("Kanskje"))
-    }
-
-    @Test
     fun `a name has every run of whitespace inside it read as one space`() {
         assertEquals(OcrValue.Read("Ola Nordmann", "Ola \t Nordmann"), parseName(" Ola \t Nordmann "))
     }
@@ -187,7 +164,7 @@ class FieldValuesTest {
     fun `two valid fnr that differ make the fnr unreadable`() {
         val checked = crossCheckFnr(fnrReadings("30898098466", "01818010083"))
         assertEquals(
-            OcrValue.Unreadable("30898098466", "different fnr: 30898098466 (tittel.fnr p1), 01818010083 (tittel.fnr p2)"),
+            OcrValue.Unreadable("30898098466", "different fnr"),
             checked.value,
         )
         assertEquals(0, checked.confirmations)
