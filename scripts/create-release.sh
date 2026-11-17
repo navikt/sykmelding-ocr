@@ -28,7 +28,7 @@ if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
   exit 1
 fi
 
-LAST_TAG=${LAST_TAG:-$(git tag --sort=-creatordate | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | head -n 1 || true)}
+LAST_TAG=${LAST_TAG:-$(git tag --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | head -n 1 || true)}
 
 RELEASE_NOTES=$(git log ${LAST_TAG:+$LAST_TAG..HEAD} --pretty=format:"* %s")
 

@@ -12,7 +12,7 @@ set -eo pipefail
 # is actually going to be released. `create-release.sh` then only tags and
 # publishes, without touching the version again.
 
-LAST_TAG=$(git tag --sort=-creatordate | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | head -n 1 || true)
+LAST_TAG=$(git tag --sort=-v:refname | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | head -n 1 || true)
 
 case "$(git log -1 --pretty=format:"%b")" in
   MAJOR) BUMP="major" ;;
