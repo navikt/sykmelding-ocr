@@ -19,7 +19,6 @@ import no.nav.tsm.sykmelding.template.MatchFilter
 import no.nav.tsm.sykmelding.template.MatchingMethods
 import no.nav.tsm.sykmelding.template.TemplateMatcher
 import no.nav.tsm.sykmelding.template.Felter
-import no.nav.tsm.sykmelding.template.PdfTemplateImages
 import no.nav.tsm.sykmelding.template.TemplateGroup
 import no.nav.tsm.sykmelding.template.TemplateLibrary
 import java.awt.BorderLayout
@@ -123,23 +122,14 @@ class BucketTemplateTestView(
     private val resultFilter = JComboBox(ShowFilter.entries.toTypedArray()).apply { toolTipText = "Show files by their test result" }
     private val count = JLabel(" ")
 
-    // Running tests: matching is lib's TemplateMatcher, as in production. The resolutions and the matching methods can
-    // be changed, to see how matching and OCR fare with others than production's.
-    private val renderDpi = DpiField("Render DPI", listOf(150, 200, 300, 400, 600), TestSettings.PRODUCTION.renderDpi,
-        { TestSettings.RENDER_RANGE }, settings, RENDER_DPI, ::tell).apply {
-        toolTipText = "<html>The PDF's pages are rendered at this resolution to be matched. Production: ${TestSettings.PRODUCTION.renderDpi} DPI, " +
-            "the templates' own.<br>Choose one, or type a whole number from ${TestSettings.RENDER_RANGE.first} to " +
-            "${TestSettings.RENDER_RANGE.last} and press Enter. A matched page is aligned to the template's size whatever this is.<br>" +
-            "Higher takes more memory and time: a page at 600 DPI has 2.25 times the pixels of one at 400.</html>"
-    }
     private val featureDpi = DpiField("Feature DPI", listOf(50, 75, 100, 150, 200), TestSettings.PRODUCTION.featureDpi,
-        { TestSettings.featureRange(renderDpi.value) }, settings, FEATURE_DPI, ::tell,
-        hint = { if (renderDpi.value < PdfTemplateImages.DPI) " (the render DPI)" else " (the templates' resolution)" }).apply {
+        { TestSettings.featureRange(TestSettings.PRODUCTION.renderDpi) }, settings, FEATURE_DPI, ::tell,
+        hint = { " (the render DPI)" }).apply {
         toolTipText = "<html>Keypoints are found on the rendered pages and on the templates scaled down to this resolution. " +
             "Production: ${TestSettings.PRODUCTION.featureDpi} DPI.<br>Choose one, or type a whole number from 10 up to the render DPI " +
-            "(at most ${PdfTemplateImages.DPI}, the templates') and press Enter.<br>Lower is faster but finds fewer features; " +
+            "(${TestSettings.PRODUCTION.renderDpi}) and press Enter.<br>Lower is faster but finds fewer features; " +
             "with too few, nothing matches. Higher takes much more time and memory.<br>" +
-            "The templates' features are detected again at the next test when this or the render DPI changes.</html>"
+            "The templates' features are detected again at the next test when this changes.</html>"
     }
     private val detector = ChoiceField(KeypointDetector.entries, MatchingMethods.PRODUCTION.detector, settings, DETECTOR,
         KeypointDetector::label, KeypointDetector::description,
@@ -154,14 +144,6 @@ class BucketTemplateTestView(
         "How the homography that aligns a page to a template page is fitted to the matches. At least 8 of them, and 40 % " +
             "of them, must agree with it (inliers: within the tolerance next to it); then the form lines must line up.")
     private val tolerance = ToleranceField(settings, TOLERANCE, ::tell) { TemplateMatcher.reprojectionTolerance(featureDpi.value) }
-    private val ocrDpi = DpiField("OCR DPI", listOf(150, 200, 250, 300, 400), TestSettings.PRODUCTION.ocrDpi,
-        { TestSettings.OCR_RANGE }, settings, OCR_DPI, ::tell).apply {
-        toolTipText = "<html>The matched page, aligned to the template at ${PdfTemplateImages.DPI} DPI, is resampled to this resolution " +
-            "for Tesseract,<br>and the lines it reads are mapped back onto the template. Production: ${TestSettings.PRODUCTION.ocrDpi} DPI. " +
-            "Checkboxes are always judged at ${PdfTemplateImages.DPI}.<br>Choose one, or type a whole number from " +
-            "${TestSettings.OCR_RANGE.first} to ${TestSettings.OCR_RANGE.last} and press Enter. Below ${TestSettings.MIN_TESSERACT_DPI} DPI " +
-            "Tesseract is told ${TestSettings.MIN_TESSERACT_DPI},<br>the lowest it accepts; the page is still read at the resolution chosen.</html>"
-    }
     private val productionDpi = JButton("As production").apply {
         toolTipText = "Render at ${TestSettings.PRODUCTION.renderDpi} DPI, find ${MatchingMethods.PRODUCTION.detector.label} features at " +
             "${TestSettings.PRODUCTION.featureDpi} DPI, filter the matches with ${MatchingMethods.PRODUCTION.filter.label}, fit the " +
@@ -338,10 +320,10 @@ class BucketTemplateTestView(
             add(flowRow(JLabel("Filter:"), filter, pdfOnly, xmlToo, withXmlOnly, JLabel("Show:"), resultFilter, count))
             add(flowRow(testSelected, Box.createHorizontalStrut(18), JLabel("Test"), runCount, JLabel("of the shown files"), order,
                 untestedOnly, run, stop))
-            add(flowRow(JLabel("Matching: render the PDF at"), renderDpi, JLabel("DPI, find"), detector, JLabel("keypoints at"), featureDpi,
+            add(flowRow(JLabel("Matching: the PDF is rendered at ${TestSettings.PRODUCTION.renderDpi} DPI; find"), detector, JLabel("keypoints at"), featureDpi,
                 JLabel("DPI, filter the matches with"), matchFilter, JLabel("and fit the homography with"), homography,
                 JLabel("within"), tolerance, JLabel("px")))
-            add(flowRow(JLabel("OCR: read the fields at"), ocrDpi, JLabel("DPI"), Box.createHorizontalStrut(18), productionDpi))
+            add(flowRow(JLabel("OCR: the fields are read at ${TestSettings.PRODUCTION.ocrDpi} DPI, as in production."), Box.createHorizontalStrut(18), productionDpi))
             add(flowRow(templatesLabel, chooseTemplates, reloadTemplates, Box.createHorizontalStrut(18), summary))
         }, BorderLayout.NORTH)
 
@@ -415,12 +397,6 @@ class BucketTemplateTestView(
         resultFilter.addActionListener { applyFilter() }
         (bucket.editor.editorComponent as? JTextField)?.addActionListener { load() }
         featureDpi.onChange = { tolerance.describe() }
-        renderDpi.onChange = { render ->
-            if (featureDpi.value > render) {
-                tell("Feature DPI lowered from ${featureDpi.value} to $render: no more than the PDF is rendered at.")
-                featureDpi.select(render)
-            }
-        }
 
         showTemplates(loadTemplates())
         applyFilter()
@@ -817,22 +793,18 @@ class BucketTemplateTestView(
         return templates to problems
     }
 
-    /** The resolutions typed or chosen, and the matching methods chosen; null, after saying why, when a resolution is not allowed. */
     private fun testSettings(): TestSettings? {
-        val render = renderDpi.commit()?.value ?: return null
         val features = featureDpi.commit()?.value ?: return null
-        val ocr = ocrDpi.commit()?.value ?: return null
         if (tolerance.commit() == null) return null
-        return TestSettings(render, features, ocr, MatchingMethods(detector.value, matchFilter.value, homography.value), tolerance.value)
+        val production = TestSettings.PRODUCTION
+        return TestSettings(production.renderDpi, features, production.ocrDpi,
+            MatchingMethods(detector.value, matchFilter.value, homography.value), tolerance.value)
     }
 
     private fun productionSettings() {
         if (job != null) return
         val production = TestSettings.PRODUCTION
-        // The render DPI first: the feature DPI may be no higher.
-        renderDpi.select(production.renderDpi)
         featureDpi.select(production.featureDpi)
-        ocrDpi.select(production.ocrDpi)
         detector.select(production.methods.detector)
         matchFilter.select(production.methods.filter)
         homography.select(production.methods.homography)
@@ -1522,7 +1494,7 @@ class BucketTemplateTestView(
         testSelected.text = if (selected > 1) "Test $selected selected" else "Test selected"
         run.isEnabled = !running && source != null
         stop.isEnabled = running && !stopRequested
-        listOf(runCount, order, untestedOnly, reloadTemplates, chooseTemplates, renderDpi, featureDpi, ocrDpi, detector,
+        listOf(runCount, order, untestedOnly, reloadTemplates, chooseTemplates, featureDpi, detector,
             matchFilter, homography, tolerance, productionDpi)
             .forEach { it.isEnabled = !running }
         val file = shown
@@ -1720,9 +1692,7 @@ class BucketTemplateTestView(
         private const val DOWNLOAD_FOLDER = "downloadFolder"
         private const val CHOSEN_TEMPLATES = "templateTestTemplates"
         private const val CHOSEN_TEXT_TEMPLATES = "templateTestTextTemplates"
-        private const val RENDER_DPI = "templateTestRenderDpi"
         private const val FEATURE_DPI = "templateTestFeatureDpi"
-        private const val OCR_DPI = "templateTestOcrDpi"
         private const val DETECTOR = "templateTestDetector"
         private const val MATCH_FILTER = "templateTestMatchFilter"
         private const val HOMOGRAPHY = "templateTestHomography"

@@ -147,8 +147,6 @@ internal data class TestSettings(
 
     companion object {
         val PRODUCTION = TestSettings(TemplateMatcher.DEFAULT_RENDER_DPI, TemplateMatcher.DEFAULT_FEATURE_DPI, ParseSykmeldingOcr.DEFAULT_OCR_DPI)
-        val RENDER_RANGE = 25..1200
-        val OCR_RANGE = 25..1200
         private const val MIN_FEATURE_DPI = 10
         /** Below this, Tesseract warns and assumes it instead; the page is still read at the resolution chosen. */
         val MIN_TESSERACT_DPI = TESSERACT_RESOLUTIONS.first
