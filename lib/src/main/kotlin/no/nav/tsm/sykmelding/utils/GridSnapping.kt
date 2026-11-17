@@ -59,7 +59,7 @@ fun findGridSnapLines(grid: Mat, minimumLength: Int): List<GridSnapLine> {
                 val box = contour.use { Geometry.boundingRect(it) }
                 val extent = if (horizontal) box.width else box.height
                 val thickness = if (horizontal) box.height else box.width
-                if (extent < length || thickness >= length) null
+                if (length !in (thickness + 1)..extent) null
                 else {
                     val start = if (horizontal) box.x else box.y
                     val coordinate = if (horizontal) box.y else box.x

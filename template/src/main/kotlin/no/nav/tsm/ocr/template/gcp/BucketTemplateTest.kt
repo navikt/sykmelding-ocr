@@ -34,6 +34,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.Locale
 import javax.imageio.ImageIO
+import kotlin.math.round
 import kotlin.math.roundToInt
 
 internal class LibraryPage(
@@ -161,7 +162,7 @@ internal data class TestSettings(
 
 /** [value] template pixels, as "4 px" or "2.5 px". */
 internal fun pixels(value: Double): String =
-    (if (value == Math.rint(value)) "%.0f" else "%.1f").format(Locale.ROOT, value) + " px"
+    (if (value == round(value)) "%.0f" else "%.1f").format(Locale.ROOT, value) + " px"
 
 private val TOLERANCE_TEXT = Regex("""^\s*(\d+(?:[.,]\d)?)\s*(?:px)?\s*$""", RegexOption.IGNORE_CASE)
 private val AUTO_TEXT = Regex("""^\s*(?:auto\b.*)?$""", RegexOption.IGNORE_CASE)

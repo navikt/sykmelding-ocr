@@ -97,8 +97,8 @@ class OcrXmlComparisonViewTest {
                 columnScroll.doLayout()
                 columnScroll.viewport.doLayout()
                 val column = columnScroll.viewport.view as javax.swing.Scrollable
-                assertTrue(column.getScrollableTracksViewportWidth())
-                assertFalse(column.getScrollableTracksViewportHeight())
+                assertTrue(column.scrollableTracksViewportWidth)
+                assertFalse(column.scrollableTracksViewportHeight)
                 assertTrue(columnScroll.viewport.view.height >= 1100)
             } finally {
                 view.close()

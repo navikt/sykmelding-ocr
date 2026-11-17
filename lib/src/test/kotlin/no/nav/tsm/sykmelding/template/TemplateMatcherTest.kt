@@ -87,9 +87,11 @@ class TemplateMatcherTest {
         val bytes = requireNotNull(javaClass.getResourceAsStream("/test.pdf")) { "Missing /test.pdf" }.use { it.readBytes() }
         val templates = TemplateLibrary.fromResources().list()
         val expected = TemplateMatcher(templates = templates).use { assertIs<TemplateMatchResult.Matched>(it.matchPdf(bytes)).template }
-        val variations = KeypointDetector.entries.map { MatchingMethods(detector = it) } +
-            MatchFilter.entries.map { MatchingMethods(filter = it) } +
-            HomographyMethod.entries.map { MatchingMethods(homography = it) }
+        val variations = buildList {
+            KeypointDetector.entries.mapTo(this) { MatchingMethods(detector = it) }
+            MatchFilter.entries.mapTo(this) { MatchingMethods(filter = it) }
+            HomographyMethod.entries.mapTo(this) { MatchingMethods(homography = it) }
+        }
         for (methods in variations.distinct()) {
             TemplateMatcher(templates = listOf(expected), methods = methods).use { matcher ->
                 assertEquals(methods, matcher.methods)

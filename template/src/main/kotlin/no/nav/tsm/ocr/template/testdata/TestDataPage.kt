@@ -74,8 +74,6 @@ class TestDataPage(private val scan: BufferedImage, private val scanned: List<Te
         }
     }
 
-    fun textParts(): List<TextPart> = parts.map { it.part }
-
     fun style(index: Int): DrawnText = parts[index].let { it.drawn ?: fitted(it.part.line, normalized(it.part.line.text)) }
 
     fun setText(index: Int, text: String) {

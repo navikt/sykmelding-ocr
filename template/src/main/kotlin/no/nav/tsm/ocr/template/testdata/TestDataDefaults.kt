@@ -9,7 +9,12 @@ fun TestDataPage.useDefaults(read: CustomTextTemplateParser.Page, defaults: Map<
     if (read.rows.isEmpty()) return DefaultsUsed(0, emptyList(), read.ignored.size)
     val labels = read.rows.values.map { it.first() }
     val digitHeight = labels.map { it.first().line.height }.sorted().let { it[it.size / 2] }
-    val form = read.heading + read.header + labels.flatten() + read.values.flatMap { it.parts }
+    val form = buildList {
+        addAll(read.heading)
+        addAll(read.header)
+        addAll(labels.flatten())
+        read.values.flatMapTo(this) { it.parts }
+    }
     val top = form.minOf { it.line.y } - MARGIN * digitHeight
     val bottom = form.maxOf { it.line.y + it.line.height } + MARGIN * digitHeight
     if (top > 0) deleteArea(Rectangle(0, 0, background.width, top))

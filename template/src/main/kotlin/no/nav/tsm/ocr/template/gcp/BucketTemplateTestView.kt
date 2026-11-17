@@ -1760,7 +1760,7 @@ private class OutcomeTableModel : AbstractTableModel() {
     override fun getColumnName(column: Int) = COLUMNS[column]
     override fun getColumnClass(column: Int): Class<*> = String::class.java
 
-    override fun getValueAt(row: Int, column: Int): Any? {
+    override fun getValueAt(row: Int, column: Int): Any {
         val template = rows[row].template
         return when (column) {
             0 -> template.group

@@ -2,6 +2,7 @@ package no.nav.tsm.ocr.template.gcp
 
 import java.util.Locale
 import java.util.prefs.Preferences
+import kotlin.math.round
 
 /**
  * An editable combo box for the homography's tolerance: "Auto", one of the presets, or a number of template pixels
@@ -52,6 +53,6 @@ internal class ToleranceField(
         const val AUTO = "Auto"
         private val PRESETS = listOf(1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0)
 
-        private fun number(value: Double): String = (if (value == Math.rint(value)) "%.0f" else "%.1f").format(Locale.ROOT, value)
+        private fun number(value: Double): String = (if (value == round(value)) "%.0f" else "%.1f").format(Locale.ROOT, value)
     }
 }

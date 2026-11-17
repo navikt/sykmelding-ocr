@@ -1,6 +1,5 @@
 package no.nav.tsm.sykmelding.ocr
 
-import com.fasterxml.jackson.annotation.JsonIgnore
 import no.nav.tsm.sykmelding.utils.TessData
 import no.nav.tsm.sykmelding.utils.packed
 import no.nav.tsm.sykmelding.utils.toBufferedImage

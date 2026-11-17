@@ -148,7 +148,7 @@ enum class FeatureDetectorType {
 
     /** A new detector, with OpenCV's settings except ORB's number of keypoints: its 500 are few for a form page. */
     fun create(): org.opencv.features.Feature2D = when (this) {
-        ORB -> org.opencv.features.ORB.create().apply { setMaxFeatures(ORB_FEATURES) }
+        ORB -> org.opencv.features.ORB.create().apply { maxFeatures = ORB_FEATURES }
         MSER -> org.opencv.features.MSER.create()
         SIFT -> org.opencv.features.SIFT.create()
         FAST -> org.opencv.features.FastFeatureDetector.create()

@@ -143,13 +143,6 @@ internal abstract class ZoomCanvas : JPanel(), Scrollable {
         return Rectangle2D.Double(a.left + maxOf(0.0, (width - a.left - a.right - w) / 2), a.top + maxOf(0.0, (height - a.top - a.bottom - h) / 2), w, h)
     }
 
-    /** The point of the content at [point] of this panel, in content pixels at 100 %. */
-    fun contentPoint(point: Point): Point2D.Double {
-        val bounds = contentBounds()
-        val s = scale
-        return Point2D.Double((point.x - bounds.x) / s, (point.y - bounds.y) / s)
-    }
-
     /** The size the content is fitted to: what is visible of this panel, or this panel without a scroll pane. */
     private fun viewSize(): Dimension = viewport?.extentSize ?: size
 
@@ -302,13 +295,6 @@ internal class ZoomControls(private val canvas: ZoomCanvas, hundredPercent: Stri
         add(fitted)
         canvas.addZoomListener(::refresh)
         refresh()
-    }
-
-    // For tests.
-    internal val shownZoom: String get() = choice.selectedItem?.toString().orEmpty()
-    internal val shownScale: String get() = fitted.text
-    internal fun type(text: String) {
-        choice.selectedItem = text
     }
 
     private fun choose(item: Any?) {

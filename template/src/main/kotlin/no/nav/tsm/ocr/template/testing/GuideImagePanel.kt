@@ -79,9 +79,6 @@ internal class GuideImagePanel : ZoomCanvas() {
    internal fun boxAt(point: Point): GuideBox? = smallestAt(point, drawn { it.boxes })
 
     internal fun regionAt(point: Point): GuideBox? = smallestAt(point, drawn { it.regions })
-
-    internal fun drawnBox(pane: Int, box: Int): Rectangle2D? = drawn { it.boxes }.firstOrNull { it.first == GuideBox(pane, box) }?.second
-
     private fun smallestAt(point: Point, shapes: List<Pair<GuideBox, Rectangle2D>>): GuideBox? =
         shapes.filter { (_, region) -> region.contains(point) }.minByOrNull { (_, region) -> region.width * region.height }?.first
 

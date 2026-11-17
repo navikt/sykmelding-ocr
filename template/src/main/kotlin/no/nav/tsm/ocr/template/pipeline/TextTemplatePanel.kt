@@ -254,7 +254,11 @@ class TextTemplatePanel(
         val catalog = catalog()
 
         val removed = field.field?.takeIf { current -> catalog.none { it.id == current.id } }
-        val choices = listOf(GlobalChoice(null)) + catalog.map { GlobalChoice(it) } + listOfNotNull(removed?.let { GlobalChoice(it, removed = true) })
+        val choices = buildList {
+            addAll(listOf(GlobalChoice(null)))
+            catalog.mapTo(this) { GlobalChoice(it) }
+            addAll(listOfNotNull(removed?.let { GlobalChoice(it, removed = true) }))
+        }
         val global = JComboBox(choices.toTypedArray()).apply {
             selectedItem = choices.firstOrNull { it.definition?.id == field.field?.id } ?: choices.first()
             toolTipText = "The global field this value is, as in an image template: by it the value is mapped to a sykmelding " +

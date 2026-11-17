@@ -62,16 +62,6 @@ internal class FilePreviewPanel : JPanel(BorderLayout(4, 4)) {
         showMessage("Select a file to preview it.")
     }
 
-    // For tests.
-    internal val pageView: ZoomCanvas get() = canvas
-    internal val zoomControls: ZoomControls get() = zoom
-    /** The DPI the shown PDF page is rendered at; null when no PDF page is shown. */
-    internal val renderedDpi: Float? get() = when {
-        pdf == null || canvas.image == null -> null
-        sharp?.page == pageIndex && canvas.image === sharp?.image -> sharp?.dpi
-        else -> PreviewContent.PDF_DPI
-    }
-
     fun showMessage(text: String, heading: String = " ") {
         reset(heading)
         message.text = "<html><div style='text-align:center'>" + escape(text).replace("\n", "<br>") + "</div></html>"

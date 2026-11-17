@@ -494,7 +494,7 @@ class OcrLabView(
 
     }
 
-    private inner class RegionTableModel : AbstractTableModel() {
+    private class RegionTableModel : AbstractTableModel() {
         var rows: List<TextRegion> = emptyList()
         private val columns = listOf("#", "Text", "Conf", "X", "Y", "W", "H")
         override fun getRowCount() = rows.size

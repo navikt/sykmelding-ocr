@@ -12,6 +12,7 @@ import java.awt.event.WindowEvent
 import java.io.File
 import javax.swing.*
 import javax.swing.filechooser.FileNameExtensionFilter
+import kotlin.system.exitProcess
 
 private data class PageEditor(val window: JFrame, val view: TemplateView, var file: File)
 
@@ -122,7 +123,7 @@ class MainView : JFrame() {
         newItem.addActionListener { libraryView.createTemplate() }
         newTemplateMenuItem.addActionListener { libraryView.createPage() }
         openSavedTemplateMenuItem.addActionListener { chooseTemplate() }
-        exitItem.addActionListener { System.exit(0) }
+        exitItem.addActionListener { exitProcess(0) }
 
         fileMenu.add(newItem)
         fileMenu.add(newTemplateMenuItem)

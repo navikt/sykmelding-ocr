@@ -128,7 +128,7 @@ class TestDataEditorView(
             override fun actionPerformed(e: ActionEvent) = deleteSelected()
         }
         listOf(canvas, table).forEach { component ->
-            component.getInputMap(JComponent.WHEN_FOCUSED).apply {
+            component.getInputMap(WHEN_FOCUSED).apply {
                 put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), DELETE_SELECTED)
                 put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), DELETE_SELECTED)
             }
