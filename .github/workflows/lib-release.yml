@@ -4,6 +4,7 @@ on:
     paths:
       - .github/workflows/lib-release.yml
       - 'lib/**'
+      - 'scripts/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.branch }}
